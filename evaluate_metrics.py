@@ -7,16 +7,51 @@ from nltk.tokenize import word_tokenize
 # --- 사전 정의 (cliche_lexicon.py가 없을 경우를 대비한 내장 예시) ---
 # 별도 파일로 관리할 경우 import cliche_lexicon 하시면 됩니다.
 ENGLISH_AI_CLICHES = {
+    # 1. 인위적 담화 표지 및 전환구 (Discourse Markers & Transitions)
     "transitions": [
-        "furthermore", "moreover", "in addition", "additionally", 
-        "it is worth noting that", "it is noteworthy that", "in summary"
-    ],
-    "hedging_and_boosters": [
-        "plays a crucial role", "vital to consider", "delve into", 
-        "testament to", "foster", "pivotal", "beacon"
-    ],
-    "generic_closers": [
+        "furthermore", "moreover", "in addition", "additionally", "notably",
+        "consequently", "subsequently", "it is worth noting that",
+        "it is noteworthy that", "importantly", "in summary", "to summarize",
         "in conclusion", "all in all", "ultimately", "moving forward"
+    ],
+    
+    # 2. 과도한 강조 및 전형적 수식어 (Hallmark Adjectives & Adverbs)
+    "elevated_modifiers": [
+        "pivotal", "crucial", "vital", "paramount", "essential", "indispensable",
+        "multifaceted", "nuanced", "intricate", "meticulous", "comprehensive",
+        "robust", "dynamic", "vibrant", "seamless", "transformative", "groundbreaking",
+        "profound", "imperative", "ubiquitous", "compelling"
+    ],
+    
+    # 3. AI 특유의 빈출 동사 및 관용적 동사구 (Frequent Verbs & Verb Phrases)
+    "cliche_verbs_and_phrases": [
+        "delve into", "delves into", "delving into",
+        "plays a crucial role", "play a crucial role",
+        "plays a pivotal role", "play a pivotal role",
+        "foster", "fosters", "fostering",
+        "underscore", "underscores", "underscoring",
+        "highlight", "highlights", "highlighting",
+        "shed light on", "sheds light on",
+        "bridge the gap", "bridges the gap",
+        "navigate", "navigates", "navigating",
+        "harness", "harnesses", "harnessing",
+        "unlock", "unlocks", "unlocking",
+        "spearhead", "spearheads", "spearheading",
+        "epitomize", "epitomizes", "epitomizing"
+    ],
+    
+    # 4. 상투적 은유 및 명사구 (Metaphorical Clichés & Tropes)
+    "metaphors_and_tropes": [
+        "testament to", "a testament to",
+        "tapestry", "rich tapestry", "complex tapestry",
+        "beacon", "beacon of",
+        "cornerstone", "cornerstone of",
+        "double-edged sword", "a double-edged sword",
+        "game changer", "a game changer",
+        "paradigm shift",
+        "ever-evolving", "ever-changing",
+        "in the realm of", "in today's world",
+        "in this digital age", "fast-paced world"
     ]
 }
 
