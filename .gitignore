@@ -3,3 +3,5 @@ __pycache__/
 .venv/
 .DS_Store
 .vscode/
+data/style_profile_cache.json
+data/failed_cases.jsonl

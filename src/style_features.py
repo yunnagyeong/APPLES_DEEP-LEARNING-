@@ -165,9 +165,12 @@ def extract_style_profile(texts: list[str]) -> dict:
     """
     all_sentences: list[str] = []
     all_paragraphs: list[str] = []
-    for text in texts:
+    total = len(texts)
+    for i, text in enumerate(texts, start=1):
         all_sentences.extend(split_sentences(text))
         all_paragraphs.extend(split_paragraphs(text))
+        if i % 10 == 0 or i == total:
+            print(f"[style_features] 예시 처리 중: {i}/{total}", file=sys.stderr)
 
     return {
         "sentence_length_avg": sentence_length_avg(all_sentences),

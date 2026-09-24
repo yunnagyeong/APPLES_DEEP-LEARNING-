@@ -13,6 +13,7 @@ from google import genai
 from google.genai import types
 
 from . import config
+from .retry import call_with_retry
 
 _client = None
 
@@ -41,9 +42,12 @@ def embed_text(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
     두 값을 구분해서 넣어주면 검색 품질이 조금 더 좋아집니다 (임베딩 모델의 권장 사용법).
     """
     client = _ensure_client()
-    result = client.models.embed_content(
-        model=config.EMBEDDING_MODEL,
-        contents=text,
-        config=types.EmbedContentConfig(task_type=task_type),
+    result = call_with_retry(
+        lambda: client.models.embed_content(
+            model=config.EMBEDDING_MODEL,
+            contents=text,
+            config=types.EmbedContentConfig(task_type=task_type),
+        ),
+        label="embed_text",
     )
     return list(result.embeddings[0].values)

@@ -11,6 +11,7 @@ from google import genai
 from . import config 
 
 from .retrieve import retrieve_similar  # 검색된 예시를 가져오는 함수
+from .retry import BACKOFF_FACTOR, INITIAL_DELAY, RETRY_ATTEMPTS, call_with_retry
 
 # 유사도가 이 값보다 낮으면 "참고 예시가 부실하다"고 판단합니다. 데이터가 쌓이면
 # 실제 분포를 보고 조정하세요. (0~1 범위, 코사인 유사도 기준)
@@ -66,7 +67,10 @@ def transform_style(text: str, examples: list[dict]) -> str:
 
 원문:
 {text}"""
-    response = client.models.generate_content(model=config.GENERATION_MODEL, contents=prompt)
+    response = call_with_retry(
+        lambda: client.models.generate_content(model=config.GENERATION_MODEL, contents=prompt),
+        label="transform_style 생성 호출",
+    )
     return _low_confidence_notice(examples) + response.text
 
 
@@ -164,7 +168,10 @@ def _style_profile_to_instructions(profile: dict) -> str:
 def translate_with_style(
     korean_text: str,
     style_profile: dict,
-    type_filter: str | None = None
+    type_filter: str | None = None,
+    attempts: int = RETRY_ATTEMPTS,
+    initial_delay: float = INITIAL_DELAY,
+    backoff_factor: float = BACKOFF_FACTOR,
 ) -> str:
     """한국어 텍스트 → 영어 번역 (개인화된 문체 반영).
 
@@ -173,6 +180,9 @@ def translate_with_style(
         style_profile: style_features.extract_style_profile()에서 반환한 9항목 dict
         type_filter: 검색할 예시의 장르 필터 (e.g., "report", "essay")
                     지정하면 그 장르 예시만 검색합니다.
+        attempts, initial_delay, backoff_factor: API 503 재시도 설정.
+            기본값은 실시간 데모용(넉넉하게 기다림). 여러 문장을 배치로 돌릴 때는
+            attempts=3, initial_delay=5.0, backoff_factor=1 처럼 짧게 주면 됩니다.
 
     Returns:
         영어 번역 텍스트 (개인화된 문체 적용)
@@ -207,9 +217,15 @@ Korean text to translate:
 Translated text in English:"""
 
     # 4. 생성 모델 호출
-    response = client.models.generate_content(
-        model=config.GENERATION_MODEL,
-        contents=prompt
+    response = call_with_retry(
+        lambda: client.models.generate_content(
+            model=config.GENERATION_MODEL,
+            contents=prompt,
+        ),
+        label="translate_with_style 생성 호출",
+        attempts=attempts,
+        initial_delay=initial_delay,
+        backoff_factor=backoff_factor,
     )
 
     # 5. 신뢰도 낮음 알림 (검색된 예시가 부실한 경우)
