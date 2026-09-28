@@ -3,6 +3,7 @@ import numpy as np
 from google import genai
 import torch
 from .embeddings import embed_text
+from .retry import call_with_retry
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 
@@ -50,9 +51,12 @@ Text:
 {text}
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=prompt
+    response = call_with_retry(
+        lambda: client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=prompt
+        ),
+        label=f"claim extraction ({language})"
     )
 
     raw_text = response.text.strip()
@@ -72,10 +76,16 @@ Text:
 
     return result["claims"]
 
-NLI_MODEL_NAME = "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7"
+
+NLI_MODEL_NAME = (
+    "MoritzLaurer/"
+    "mDeBERTa-v3-base-xnli-multilingual-nli-2mil7"
+)
 
 nli_tokenizer = AutoTokenizer.from_pretrained(NLI_MODEL_NAME)
-nli_model = AutoModelForSequenceClassification.from_pretrained(NLI_MODEL_NAME)
+nli_model = AutoModelForSequenceClassification.from_pretrained(
+    NLI_MODEL_NAME
+)
 
 
 def nli_check(premise: str, hypothesis: str) -> dict:
@@ -104,10 +114,18 @@ def nli_check(premise: str, hypothesis: str) -> dict:
         "confidence": scores[best_label],
         "scores": scores
     }
-    
+
+
 def verify_claims(source_text: str, translated_text: str) -> dict:
-    source_claims = extract_claims(source_text, language="ko")
-    translated_claims = extract_claims(translated_text, language="en")
+    source_claims = extract_claims(
+        source_text,
+        language="ko"
+    )
+
+    translated_claims = extract_claims(
+        translated_text,
+        language="en"
+    )
 
     source_results = []
     translated_results = []
@@ -147,7 +165,54 @@ def verify_claims(source_text: str, translated_text: str) -> dict:
         "translation_claims": translated_results
     }
 
-def verify_translation(source_text: str, translated_text: str) -> dict:
+
+def build_failure_reasons(claim_results: dict) -> list[dict]:
+    failure_reasons = []
+
+    # Direction 1: Source -> Translation
+    # 원문의 claim이 번역에서 보존되지 않은 경우
+    for result in claim_results["source_claims"]:
+        if result["label"] != "entailment":
+
+            if result["label"] == "contradiction":
+                error_type = "CONTRADICTION"
+            else:
+                error_type = "OMISSION_OR_UNSUPPORTED"
+
+            failure_reasons.append({
+                "type": error_type,
+                "direction": "source_to_translation",
+                "claim": result["claim"],
+                "label": result["label"],
+                "confidence": result["confidence"]
+            })
+
+    # Direction 2: Translation -> Source
+    # 번역의 claim이 원문에서 지원되지 않는 경우
+    for result in claim_results["translation_claims"]:
+        if result["label"] != "entailment":
+
+            if result["label"] == "contradiction":
+                error_type = "CONTRADICTION"
+            else:
+                error_type = "UNSUPPORTED_ADDITION"
+
+            failure_reasons.append({
+                "type": error_type,
+                "direction": "translation_to_source",
+                "claim": result["claim"],
+                "label": result["label"],
+                "confidence": result["confidence"]
+            })
+
+    return failure_reasons
+
+
+def verify_translation(
+    source_text: str,
+    translated_text: str
+) -> dict:
+
     similarity = semantic_similarity(
         source_text,
         translated_text
@@ -158,8 +223,35 @@ def verify_translation(source_text: str, translated_text: str) -> dict:
         translated_text
     )
 
+    failure_reasons = build_failure_reasons(
+        claim_results
+    )
+
+    verdict, critical_errors = determine_verdict(
+        failure_reasons
+    )
+
     return {
         "semantic_similarity": similarity,
         "source_claims": claim_results["source_claims"],
-        "translation_claims": claim_results["translation_claims"]
+        "translation_claims": claim_results["translation_claims"],
+        "failure_reasons": failure_reasons,
+        "critical_errors": critical_errors,
+        "verdict": verdict
     }
+
+def determine_verdict(failure_reasons: list[dict]) -> tuple[str, list[dict]]:
+    critical_errors = []
+
+    for reason in failure_reasons:
+        if reason["type"] == "CONTRADICTION":
+            critical_errors.append(reason)
+
+    if critical_errors:
+        verdict = "FAIL"
+    elif failure_reasons:
+        verdict = "REVIEW"
+    else:
+        verdict = "PASS"
+
+    return verdict, critical_errors
