@@ -7,3 +7,6 @@ pytest
 python-dotenv
 google-genai>=1.0
 numpy>=1.26
+kiwipiepy
+torch
+transformers
