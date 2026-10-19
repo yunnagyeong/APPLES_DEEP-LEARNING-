@@ -187,7 +187,7 @@ def translate_with_style(
             attempts=3, initial_delay=5.0, backoff_factor=1 처럼 짧게 주면 됩니다.
 
     Returns:
-        영어 번역 텍스트 (개인화된 문체 적용)
+        영어 번역 텍스트 (개인화된 문체 적용). 낮은 검색 신뢰도 안내문은 포함하지 않습니다.
     """
     client = _ensure_client()
 
@@ -230,7 +230,7 @@ Translated text in English:"""
         backoff_factor=backoff_factor,
     )
 
-    # 5. 신뢰도 낮음 알림 (검색된 예시가 부실한 경우)
-    notice = _low_confidence_notice(examples)
-
-    return notice + response.text
+    # 번역문만 반환합니다. 검색 신뢰도 낮음 안내(_low_confidence_notice)를 번역문 앞에
+    # 붙이면 검증(verify_translation)이 안내문까지 번역의 일부로 보고 가짜
+    # UNSUPPORTED_ADDITION을 만들 수 있어서, 안내문은 호출하는 쪽에서 따로 붙입니다.
+    return response.text
