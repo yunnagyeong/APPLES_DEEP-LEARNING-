@@ -1,13 +1,12 @@
-"""rag_writing_cleaned_final.jsonl(원본 문서)을 data/examples/examples.jsonl 스키마로 변환합니다.
+"""data/raw/<user>_raw.jsonl(원본 문서)을 data/examples/<user>/examples.jsonl 스키마로 변환합니다.
 
 문체 예시로 쓰기에 적절한 단위를 만들기 위해, 단순 글자 수 기준(chunked_700)이 아니라
 문단 경계(빈 줄)를 기준으로 자릅니다. 원본은 줄바꿈이 워드/PDF 추출 과정에서 생긴 강제
 개행(soft wrap)인 경우가 많아 문단 내부 개행은 공백으로 합칩니다. 너무 짧은 문단(불릿 한
 줄 등)은 다음 문단과 합치고, 너무 긴 문단(에세이형 글)은 문장 경계에서 다시 나눠서, 완결된
-문장으로 시작·끝나는 200~500자 안팎의 조각을 만듭니다. (스코프: 이 프로젝트의 소스 하나뿐이라
-build_index.py처럼 범용화하지 않고 일회성 변환 스크립트로 둡니다.)
+문장으로 시작·끝나는 200~500자 안팎의 조각을 만듭니다.
 
-사용법: python scripts/convert_data_to_examples.py
+사용법: python scripts/convert_data_to_examples.py <user>  (예: ganghee)
 """
 
 import json
@@ -18,8 +17,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import config
-
-SOURCE_PATH = config.ROOT_DIR / "data" / "rag_writing_cleaned_final.jsonl"
 
 TARGET_MIN = 150
 TARGET_MAX = 500
@@ -83,12 +80,18 @@ def merge_pieces(pieces: list[str]) -> list[str]:
 
 
 def main() -> None:
-    if not SOURCE_PATH.exists():
-        print(f"[convert] 원본 파일을 찾을 수 없습니다: {SOURCE_PATH}", file=sys.stderr)
+    if len(sys.argv) != 2:
+        print("사용법: python scripts/convert_data_to_examples.py <user>", file=sys.stderr)
+        sys.exit(1)
+    user = sys.argv[1]
+    source_path = config.raw_path(user)
+
+    if not source_path.exists():
+        print(f"[convert] 원본 파일을 찾을 수 없습니다: {source_path}", file=sys.stderr)
         sys.exit(1)
 
     examples = []
-    with open(SOURCE_PATH, encoding="utf-8") as f:
+    with open(source_path, encoding="utf-8") as f:
         docs = [json.loads(line) for line in f if line.strip()]
 
     for doc in docs:
@@ -106,7 +109,7 @@ def main() -> None:
                 }
             )
 
-    out_path = config.EXAMPLES_PATH
+    out_path = config.examples_path(user)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         for ex in examples:

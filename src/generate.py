@@ -168,6 +168,7 @@ def _style_profile_to_instructions(profile: dict) -> str:
 def translate_with_style(
     korean_text: str,
     style_profile: dict,
+    user: str,
     type_filter: str | None = None,
     attempts: int = RETRY_ATTEMPTS,
     initial_delay: float = INITIAL_DELAY,
@@ -178,6 +179,7 @@ def translate_with_style(
     Args:
         korean_text: 번역할 한국어 텍스트
         style_profile: style_features.extract_style_profile()에서 반환한 9항목 dict
+        user: 어느 사람의 예시 풀(data/examples/<user>/)에서 검색할지
         type_filter: 검색할 예시의 장르 필터 (e.g., "report", "essay")
                     지정하면 그 장르 예시만 검색합니다.
         attempts, initial_delay, backoff_factor: API 503 재시도 설정.
@@ -191,7 +193,7 @@ def translate_with_style(
 
     # 1. RAG: 입력 텍스트와 유사한 한국어 예시 검색
     #    (검색 쿼리는 한국어, 예시도 한국어로 제공 — 이 스타일로 쓰라는 레퍼런스)
-    examples = retrieve_similar(korean_text, k=4, type_filter=type_filter)
+    examples = retrieve_similar(korean_text, user, k=4, type_filter=type_filter)
 
     # 2. StyleProfile → 영어 스타일 지시문
     style_instructions = _style_profile_to_instructions(style_profile)

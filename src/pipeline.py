@@ -1,4 +1,4 @@
-"""4주차: Generation 엔드투엔드 1차 파이프라인.
+"""Generation 엔드투엔드 1차 파이프라인.
 
 기존 코드(style_features.py의 extract_style_profile, generate.py의 translate_with_style)를
 하나의 함수로 묶어서, "한국어 텍스트 → 개인화 영어 번역"을 원스톱으로 처리합니다.
@@ -18,39 +18,35 @@ from .generate import _ensure_client, _format_examples, _style_profile_to_instru
 from .retrieve import retrieve_similar
 from .retry import call_with_retry
 
-# 계산된 스타일 프로필을 저장해둘 캐시 파일 경로
-STYLE_PROFILE_CACHE_PATH = config.ROOT_DIR / "data" / "style_profile_cache.json"
 
-# 배치 처리(여러 문장 연속 테스트) 시 실패한 문장을 남겨둘 로그 파일
-FAILED_CASES_PATH = config.ROOT_DIR / "data" / "failed_cases.jsonl"
-
-
-def _load_or_compute_style_profile(force_recompute: bool = False) -> dict:
+def _load_or_compute_style_profile(user: str, force_recompute: bool = False) -> dict:
     """캐싱된 스타일 프로필을 불러오거나, 없으면 새로 계산해서 저장합니다.
 
-    force_recompute=True로 호출하면 캐시를 무시하고 examples.jsonl 전체를 다시 분석합니다.
-    (팀 데이터가 갱신됐을 때 사용)
+    force_recompute=True로 호출하면 캐시를 무시하고 해당 user의 examples.jsonl 전체를
+    다시 분석합니다. (팀 데이터가 갱신됐을 때 사용)
     """
-    if not force_recompute and STYLE_PROFILE_CACHE_PATH.exists():
-        with open(STYLE_PROFILE_CACHE_PATH, encoding="utf-8") as f:
+    cache_path = config.style_profile_cache_path(user)
+    if not force_recompute and cache_path.exists():
+        with open(cache_path, encoding="utf-8") as f:
             return json.load(f)
 
     # 캐시가 없거나 강제 재계산인 경우에만 무거운 연산 수행
     from . import style_features as sf
     from .store import read_examples
 
-    examples = read_examples()
+    examples = read_examples(user)
     texts = [ex["text"] for ex in examples]
     profile = sf.extract_style_profile(texts)
 
-    STYLE_PROFILE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(STYLE_PROFILE_CACHE_PATH, "w", encoding="utf-8") as f:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(cache_path, "w", encoding="utf-8") as f:
         json.dump(profile, f, ensure_ascii=False, indent=2)
 
     return profile
 
 
 def generate_translation(
+    user: str,
     korean_text: str,
     type_filter: str | None = None,
     force_recompute_profile: bool = False,
@@ -61,6 +57,7 @@ def generate_translation(
     (내부적으로 스타일 프로필 로드/계산 + RAG 검색 + 프롬프트 구성 + 생성 모델 호출까지 처리)
 
     Args:
+        user: 어느 사람의 예시 풀/스타일 프로필을 쓸지 (예: "ganghee")
         korean_text: 번역할 한국어 텍스트
         type_filter: RAG 검색 시 장르 필터 (예: "report", "essay"). 없으면 전체에서 검색.
         force_recompute_profile: True면 캐시 무시하고 스타일 프로필 재계산
@@ -68,33 +65,37 @@ def generate_translation(
     Returns:
         개인화된 영어 번역 텍스트
     """
-    profile = _load_or_compute_style_profile(force_recompute=force_recompute_profile)
-    return translate_with_style(korean_text, profile, type_filter=type_filter)
+    profile = _load_or_compute_style_profile(user, force_recompute=force_recompute_profile)
+    return translate_with_style(korean_text, profile, user, type_filter=type_filter)
 
 
 def generate_translation_batch(
+    user: str,
     korean_texts: list[str],
     type_filter: str | None = None,
 ) -> list[str | None]:
     """여러 문장을 연속으로 번역합니다 (오류 사례 수집 등 배치 테스트용).
 
     문장마다 재시도를 짧게(최대 3회, 5초 고정 간격) 시도하고, 그래도 503 등으로 실패하면
-    건너뛰고 다음 문장으로 넘어갑니다. 실패한 문장은 FAILED_CASES_PATH에 원문과 에러
-    메시지를 한 줄씩(JSONL) 기록합니다.
+    건너뛰고 다음 문장으로 넘어갑니다. 실패한 문장은 data/failed_cases/<user>.jsonl에
+    원문과 에러 메시지를 한 줄씩(JSONL) 기록합니다.
 
     Returns:
         입력 순서와 같은 길이의 리스트. 실패한 자리는 None.
     """
-    profile = _load_or_compute_style_profile()
+    profile = _load_or_compute_style_profile(user)
     results: list[str | None] = []
 
-    with open(FAILED_CASES_PATH, "w", encoding="utf-8") as failed_log:
+    failed_path = config.failed_cases_path(user)
+    failed_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(failed_path, "w", encoding="utf-8") as failed_log:
         for i, text in enumerate(korean_texts, start=1):
             try:
                 results.append(
                     translate_with_style(
                         text,
                         profile,
+                        user,
                         type_filter=type_filter,
                         attempts=3,
                         initial_delay=5.0,
@@ -159,11 +160,12 @@ def _retranslate_with_feedback(
     previous_translation: str,
     failure_reasons: list[dict],
     style_profile: dict,
+    user: str,
     type_filter: str | None,
 ) -> str:
     """이전 번역 + 검증 실패 사유를 프롬프트에 넣어 재생성."""
     client = _ensure_client()
-    examples = retrieve_similar(korean_text, k=4, type_filter=type_filter)
+    examples = retrieve_similar(korean_text, user, k=4, type_filter=type_filter)
 
     # generate.py에 이미 있는 스타일 지시문 변환 함수 재사용
     from .generate import _style_profile_to_instructions
@@ -205,6 +207,7 @@ Corrected translation:"""
 def translate_with_verification(
     korean_text: str,
     style_profile: dict,
+    user: str,
     type_filter: str | None = None,
     max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> dict:
@@ -224,7 +227,7 @@ def translate_with_verification(
     """
     from .verify import verify_translation  # NLI 모델 로딩이 무거워서 실제 호출 시점에 import
 
-    translation = translate_with_style(korean_text, style_profile, type_filter=type_filter)
+    translation = translate_with_style(korean_text, style_profile, user, type_filter=type_filter)
     history = []
 
     total_attempts = max_retries + 1
@@ -247,6 +250,7 @@ def translate_with_verification(
             translation,
             verification["failure_reasons"],
             style_profile,
+            user,
             type_filter,
         )
 

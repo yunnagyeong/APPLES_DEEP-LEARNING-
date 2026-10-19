@@ -18,10 +18,11 @@ def _cosine_similarity(query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
 
 
 def retrieve_similar(
-    query: str, k: int = config.DEFAULT_TOP_K, type_filter: str | None = None
+    query: str, user: str, k: int = config.DEFAULT_TOP_K, type_filter: str | None = None
 ) -> list[dict]:
-    """query와 가장 비슷한 내 예시 상위 k개를 유사도 점수와 함께 반환합니다.
+    """query와 가장 비슷한 user의 예시 상위 k개를 유사도 점수와 함께 반환합니다.
 
+    user는 어느 사람의 예시 풀(data/examples/<user>/)에서 검색할지를 정합니다.
     type_filter를 지정하면 그 장르(예: "report", "essay")의 예시만 대상으로 검색합니다.
     일반적인 문장은 특정 장르의 어휘를 담고 있지 않아 의미 검색만으로는 엉뚱한 장르의 예시가
     뽑힐 수 있는데(예: "이번 주차 활동 정리"), 원하는 장르가 이미 정해져 있다면 이 옵션으로
@@ -29,7 +30,7 @@ def retrieve_similar(
 
     반환값은 [{"score": float, **example}, ...] 형태이며 유사도가 높은 순으로 정렬됩니다.
     """
-    examples, vectors = load_indexed_examples()
+    examples, vectors = load_indexed_examples(user)
     if type_filter is not None:
         filtered = [(ex, vec) for ex, vec in zip(examples, vectors) if ex.get("type") == type_filter]
         examples = [ex for ex, _ in filtered]

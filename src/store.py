@@ -16,14 +16,15 @@ def _text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def read_examples() -> list[dict]:
-    """data/examples/examples.jsonl을 읽어 리스트로 반환합니다."""
-    if not config.EXAMPLES_PATH.exists():
-        print(f"[store] {config.EXAMPLES_PATH} 파일이 없습니다.", file=sys.stderr)
+def read_examples(user: str) -> list[dict]:
+    """data/examples/<user>/examples.jsonl을 읽어 리스트로 반환합니다."""
+    path = config.examples_path(user)
+    if not path.exists():
+        print(f"[store] {path} 파일이 없습니다.", file=sys.stderr)
         sys.exit(1)
 
     examples = []
-    with open(config.EXAMPLES_PATH, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line_no, line in enumerate(f, start=1):
             line = line.strip()
             if not line:
@@ -36,27 +37,29 @@ def read_examples() -> list[dict]:
     return examples
 
 
-def _load_cache() -> dict:
-    if not config.INDEX_CACHE_PATH.exists():
+def _load_cache(user: str) -> dict:
+    path = config.index_cache_path(user)
+    if not path.exists():
         return {}
-    with open(config.INDEX_CACHE_PATH, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _save_cache(cache: dict) -> None:
-    config.INDEX_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(config.INDEX_CACHE_PATH, "w", encoding="utf-8") as f:
+def _save_cache(user: str, cache: dict) -> None:
+    path = config.index_cache_path(user)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False)
 
 
-def build_index() -> None:
-    """examples.jsonl을 기준으로 임베딩 캐시를 최신 상태로 만듭니다.
+def build_index(user: str) -> None:
+    """data/examples/<user>/examples.jsonl을 기준으로 임베딩 캐시를 최신 상태로 만듭니다.
 
     이미 같은 텍스트로 임베딩해둔 예시는 재호출하지 않아 API 사용량을 아낍니다.
     예시를 추가/수정한 뒤에는 이 함수(또는 scripts/build_index.py)를 다시 실행해야 합니다.
     """
-    examples = read_examples()
-    cache = _load_cache()
+    examples = read_examples(user)
+    cache = _load_cache(user)
     total = len(examples)
     print(f"[store] 총 {total}개 예시 확인, 색인 시작")
 
@@ -72,22 +75,22 @@ def build_index() -> None:
         new_count += 1
         print(f"[store] ({i}/{total}) 임베딩 계산: {ex_id} ({ex.get('type', '?')})")
         if i % 10 == 0:
-            _save_cache(cache)  # 중간에 실패해도 여기까지는 재사용 가능하도록 주기적으로 저장
+            _save_cache(user, cache)  # 중간에 실패해도 여기까지는 재사용 가능하도록 주기적으로 저장
 
-    _save_cache(cache)
+    _save_cache(user, cache)
     print(
         f"[store] 완료. 전체 {len(examples)}개 중 {new_count}개 새로 임베딩, "
         f"{len(examples) - new_count}개 캐시 재사용."
     )
 
 
-def load_indexed_examples() -> tuple[list[dict], list[list[float]]]:
+def load_indexed_examples(user: str) -> tuple[list[dict], list[list[float]]]:
     """검색에 쓸 (예시 메타데이터 리스트, 임베딩 벡터 리스트)를 반환합니다.
 
     캐시에 없는 예시가 있으면 색인이 오래된 것이므로, build_index()를 먼저 실행하라고 안내합니다.
     """
-    examples = read_examples()
-    cache = _load_cache()
+    examples = read_examples(user)
+    cache = _load_cache(user)
 
     vectors = []
     missing = []
@@ -103,7 +106,7 @@ def load_indexed_examples() -> tuple[list[dict], list[list[float]]]:
         print(
             "[store] 다음 예시가 아직 색인되지 않았습니다: "
             f"{', '.join(missing)}\n"
-            "        `python scripts/build_index.py`를 먼저 실행해주세요.",
+            f"        `python scripts/build_index.py {user}`를 먼저 실행해주세요.",
             file=sys.stderr,
         )
         sys.exit(1)
