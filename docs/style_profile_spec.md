@@ -74,7 +74,7 @@ hedging_사전 = ["~것 같다", "~수 있다", "~수도 있다", "~일 수 있�
 사실 이건 원래 대화에서 팀이 언급했던 항목("예시 사용 빈도 등")인데 1주차 초안에서 제가 빠뜨렸습니다. "예를 들어", "가령", "예컨대" 같은 표지어의 문장당 등장 빈도로, 접속 표현·hedging과 동일한 사전 매칭 방식이라 구현 비용이 거의 없습니다. 6개 항목에 그대로 추가하는 걸 권장합니다.
 
 ### 8. 어휘 다양성 — `lexical_diversity`
-(TTR, Type-Token Ratio: 서로 다른 단어 수 ÷ 전체 단어 수)
+(MTLD, Measure of Textual Lexical Diversity. 처음에는 TTR(서로 다른 단어 수 ÷ 전체 단어 수)이었으나, TTR은 글이 길수록 기계적으로 떨어져 코퍼스 길이가 다른 사람끼리 비교할 수 없어서 2026-10-20에 MTLD로 교체했다. 키 이름은 그대로. 값은 0~1이 아니라 대략 수십 단위)
 반복적으로 같은 단어를 쓰는지, 어휘가 풍부한지를 잡아냅니다. 별도 사전이 필요 없어 구현이 간단하고, 특히 **7주차 평가 때 쓸 "AI 획일화 정량 측정"(어휘 다양성 비교)과 계산 로직을 그대로 공유**할 수 있어 팀원③의 작업과 코드 중복을 줄여줍니다.
 
 ### 9. 평균 문단 길이 — `paragraph_length_avg`
@@ -101,7 +101,7 @@ StyleProfile = {
     "hedging_rate": float,             # 문장당 hedging 표현 개수
     "conclusion_position": str,        # "front" | "back" | "mixed"
     "example_usage_rate": float,       # 문장당 예시 표지어 개수 (추가 권장 항목)
-    "lexical_diversity": float,        # TTR, 0~1 (추가 권장 항목 — 7주차 AI 획일화 지표와 로직 공유)
+    "lexical_diversity": float,        # MTLD, 값이 클수록 다양 (0~1 아님. 추가 권장 항목 — 7주차 AI 획일화 지표와 로직 공유)
     "paragraph_length_avg": float,     # 문단당 평균 문장 수 (추가 권장 항목)
     "source_example_count": int,       # 이 프로파일을 뽑은 데 사용한 원문 개수 (표본 크기 투명성용)
 }

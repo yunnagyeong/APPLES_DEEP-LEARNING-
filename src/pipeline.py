@@ -14,7 +14,13 @@ import json
 import sys
 
 from . import config
-from .generate import _ensure_client, _format_examples, _style_profile_to_instructions, translate_with_style
+from .generate import (
+    _ensure_client,
+    _format_examples,
+    _low_confidence_notice,
+    _style_profile_to_instructions,
+    translate_with_style,
+)
 from .retrieve import retrieve_similar
 from .retry import call_with_retry
 
@@ -160,12 +166,14 @@ def _retranslate_with_feedback(
     previous_translation: str,
     failure_reasons: list[dict],
     style_profile: dict,
-    user: str,
-    type_filter: str | None,
+    examples: list[dict],
 ) -> str:
-    """이전 번역 + 검증 실패 사유를 프롬프트에 넣어 재생성."""
+    """이전 번역 + 검증 실패 사유를 프롬프트에 넣어 재생성.
+
+    examples는 translate_with_verification()이 맨 앞에서 한 번 검색한 결과를 그대로 받습니다
+    (재번역마다 같은 문장을 다시 임베딩·검색하지 않기 위해).
+    """
     client = _ensure_client()
-    examples = retrieve_similar(korean_text, user, k=4, type_filter=type_filter)
 
     # generate.py에 이미 있는 스타일 지시문 변환 함수 재사용
     from .generate import _style_profile_to_instructions
@@ -213,9 +221,19 @@ def translate_with_verification(
 ) -> dict:
     """개인화 번역 -> 검증 -> (필요시) 실패 사유 기반 재번역 까지 처리하는 통합 함수.
 
-    주의: verify_translation()이 호출당 LLM claim 추출 2회 + NLI 검사를 수행하므로,
-    max_retries=2면 최악의 경우 번역 3회 + 검증 3회(각 검증마다 LLM 호출 2회 이상)가
-    발생합니다. 무료 티어 쿼터를 고려해서 max_retries를 너무 높이지 마세요.
+    호출 수 (max_retries=2, 최악의 경우 = 재번역 2회까지 모두 사용. 503/429 재시도는 제외):
+      - 번역·재번역 생성(Gemini) 3회
+      - claim 추출(Gemini) 6회: 검증 1회당 원문·번역문 각 1회 × 검증 3회
+      - 임베딩 7회: RAG 검색 1회(맨 앞에서 한 번만) + 의미 유사도 6회(검증 1회당 2회)
+      → API 호출 합계 16회 (검색을 재번역마다 다시 하던 시절에는 18회였음)
+      - NLI는 로컬 추론이라 API 호출에 포함하지 않음
+    재번역이 없으면(첫 검증에서 PASS) 6회, 재번역 1회면 11회입니다.
+    scripts/measure_pipeline.py --mode offline 으로 직접 확인할 수 있습니다.
+
+    무료 티어 주의: claim 추출 모델(verify.py의 gemini-3.6-flash)은 분당 5회·하루 20회
+    한도가 있어 검증 1회(claim 2회)가 하루 한도의 10%를 씁니다. max_retries를 너무 높이지
+    마세요. 지연시간은 검증 쪽 claim 추출 LLM이 대부분을 차지합니다(소표본 실측: 재번역
+    없는 경우 약 7~15초, scripts/measure_pipeline.py --mode live).
 
     Returns:
         {
@@ -223,11 +241,18 @@ def translate_with_verification(
             "verdict": str,                    # 최종 verdict (PASS/REVIEW/FAIL)
             "attempts": int,                   # 실제 시도 횟수
             "verification_history": list[dict],  # 각 시도의 verify_translation() 결과
+            "notice": str,                     # 검색 신뢰도 낮음 안내문 (없으면 ""). 번역문에는 붙이지 않음
         }
     """
     from .verify import verify_translation  # NLI 모델 로딩이 무거워서 실제 호출 시점에 import
 
-    translation = translate_with_style(korean_text, style_profile, user, type_filter=type_filter)
+    # 검색은 여기서 한 번만 하고, 첫 번역과 재번역에 같은 결과를 넘깁니다.
+    examples = retrieve_similar(korean_text, user, k=config.DEFAULT_TOP_K, type_filter=type_filter)
+    notice = _low_confidence_notice(examples)  # 번역문과 분리해서 결과 dict로만 전달
+
+    translation = translate_with_style(
+        korean_text, style_profile, user, type_filter=type_filter, examples=examples
+    )
     history = []
 
     total_attempts = max_retries + 1
@@ -250,8 +275,7 @@ def translate_with_verification(
             translation,
             verification["failure_reasons"],
             style_profile,
-            user,
-            type_filter,
+            examples,
         )
 
     return {
@@ -259,4 +283,5 @@ def translate_with_verification(
         "verdict": history[-1]["verdict"],
         "attempts": len(history),
         "verification_history": history,
+        "notice": notice,
     }

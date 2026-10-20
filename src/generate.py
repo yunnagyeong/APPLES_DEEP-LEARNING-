@@ -17,6 +17,12 @@ from .retry import BACKOFF_FACTOR, INITIAL_DELAY, RETRY_ATTEMPTS, call_with_retr
 # 실제 분포를 보고 조정하세요. (0~1 범위, 코사인 유사도 기준)
 LOW_SIMILARITY_THRESHOLD = 0.55
 
+# lexical_diversity는 MTLD라서 0~1 척도가 아닙니다(대략 수십 단위). 아래 기준값은 강희·수영·나경
+# raw 코퍼스 문서 52편의 문서별 MTLD를 3등분한 경계(50.5, 71.7)를 반올림한 잠정값입니다.
+# 코퍼스가 늘거나 바뀌면 `python scripts/analyze_lexical_diversity.py`로 다시 계산하세요.
+LEXICAL_DIVERSITY_LOW = 50.0
+LEXICAL_DIVERSITY_HIGH = 72.0
+
 _client = None
 
 
@@ -148,10 +154,11 @@ def _style_profile_to_instructions(profile: dict) -> str:
 
     # 8. 어휘 다양성
     lex_div = profile.get("lexical_diversity", 0)
-    if lex_div >= 0.8:
+    if lex_div >= LEXICAL_DIVERSITY_HIGH:
         lines.append("Use varied vocabulary; avoid repetition")
-    else:
+    elif lex_div < LEXICAL_DIVERSITY_LOW:
         lines.append("Use consistent, repeated key terms for clarity")
+    # 중간 구간은 특별한 지시 안 함
 
     # 9. 단락 길이
     para_len = profile.get("paragraph_length_avg", 0)
@@ -173,6 +180,7 @@ def translate_with_style(
     attempts: int = RETRY_ATTEMPTS,
     initial_delay: float = INITIAL_DELAY,
     backoff_factor: float = BACKOFF_FACTOR,
+    examples: list[dict] | None = None,
 ) -> str:
     """한국어 텍스트 → 영어 번역 (개인화된 문체 반영).
 
@@ -185,6 +193,9 @@ def translate_with_style(
         attempts, initial_delay, backoff_factor: API 503 재시도 설정.
             기본값은 실시간 데모용(넉넉하게 기다림). 여러 문장을 배치로 돌릴 때는
             attempts=3, initial_delay=5.0, backoff_factor=1 처럼 짧게 주면 됩니다.
+        examples: 미리 검색해 둔 RAG 예시(retrieve_similar() 결과). 주면 검색을 건너뜁니다
+            (translate_with_verification()이 첫 번역·재번역에 같은 검색 결과를 쓰려고 넘김).
+            None이면 기존처럼 이 함수 안에서 직접 검색합니다.
 
     Returns:
         영어 번역 텍스트 (개인화된 문체 적용). 낮은 검색 신뢰도 안내문은 포함하지 않습니다.
@@ -193,7 +204,10 @@ def translate_with_style(
 
     # 1. RAG: 입력 텍스트와 유사한 한국어 예시 검색
     #    (검색 쿼리는 한국어, 예시도 한국어로 제공 — 이 스타일로 쓰라는 레퍼런스)
-    examples = retrieve_similar(korean_text, user, k=4, type_filter=type_filter)
+    if examples is None:
+        examples = retrieve_similar(
+            korean_text, user, k=config.DEFAULT_TOP_K, type_filter=type_filter
+        )
 
     # 2. StyleProfile → 영어 스타일 지시문
     style_instructions = _style_profile_to_instructions(style_profile)

@@ -131,11 +131,44 @@ def conclusion_position(paragraphs: list[str]) -> str:
     return "mixed"
 
 
-def lexical_diversity(sentences: list[str]) -> float:
-    """TTR(Type-Token Ratio), 내용어(명사/동사/형용사/부사/어근) 기준.
+def calculate_mtld(tokens: list[str], ttr_threshold: float = 0.72) -> float:
+    """MTLD (Measure of Textual Lexical Diversity). evaluate_metrics.py의 calculate_mtld와 같은 알고리즘.
 
-    spec 추가 권장 항목 — 7주차 AI 획일화 평가의 어휘 다양성 계산과 같은 방식을
-    쓸 수 있도록, 언어 무관하게 "토큰 리스트"를 받는 형태로 별도 유틸을 분리해도 좋다.
+    토큰을 앞에서부터 읽으며 TTR이 ttr_threshold 아래로 떨어질 때마다 한 구간(factor)을 끊고
+    새로 시작한다. 결과는 "전체 토큰 수 / 구간 수", 즉 새 단어가 반복 없이 평균 몇 토큰이나
+    이어지는지다. 앞→뒤, 뒤→앞 두 방향의 평균을 쓴다. 값이 클수록 어휘가 다양하다.
+    TTR과 달리 글 길이에 거의 영향을 받지 않는다. 토큰이 10개 미만이면 0.0.
+    """
+    if len(tokens) < 10:
+        return 0.0
+
+    def _factor_mean(token_list: list[str]) -> float:
+        factors = 0.0
+        current_types: set[str] = set()
+        token_count = 0
+        for token in token_list:
+            token_count += 1
+            current_types.add(token)
+            if len(current_types) / token_count <= ttr_threshold:
+                factors += 1.0
+                current_types = set()
+                token_count = 0
+        if token_count > 0:  # 끝까지 못 채운 마지막 구간은 비율로 보정 (McCarthy & Jarvis)
+            current_ttr = len(current_types) / token_count
+            if current_ttr < 1.0:
+                factors += (1.0 - current_ttr) / (1.0 - ttr_threshold)
+        return len(token_list) / factors if factors > 0 else float(len(token_list))
+
+    return round((_factor_mean(tokens) + _factor_mean(tokens[::-1])) / 2.0, 2)
+
+
+def lexical_diversity(sentences: list[str]) -> float:
+    """MTLD, 내용어(명사/동사/형용사/부사/어근) 기준. 키 이름은 호환을 위해 lexical_diversity 유지.
+
+    예전에는 TTR(0~1)이었으나, TTR은 글이 길수록 기계적으로 떨어져 코퍼스 길이가 다른 사람끼리
+    비교할 수 없어서 MTLD로 교체했다(투두 5번). 값의 범위가 0~1이 아니라 대략 수십 단위이므로
+    generate.py의 임계값(LEXICAL_DIVERSITY_*)도 이 척도 기준이어야 한다. 7주차 AI 획일화
+    평가(evaluate_metrics.py)의 어휘 다양성과 같은 알고리즘이다.
     """
     if not sentences:
         return 0.0
@@ -145,7 +178,7 @@ def lexical_diversity(sentences: list[str]) -> float:
     lemmas = [t.form for t in tokens if t.tag in CONTENT_TAGS]
     if not lemmas:
         return 0.0
-    return len(set(lemmas)) / len(lemmas)
+    return calculate_mtld(lemmas)
 
 
 def paragraph_length_avg(paragraphs: list[str]) -> float:
