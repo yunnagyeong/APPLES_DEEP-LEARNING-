@@ -96,7 +96,8 @@ def main() -> None:
 
     for doc in docs:
         title = doc["title"]
-        doc_type = infer_type(title)
+        # raw에 type 필드가 있으면 그 값을 우선 사용(사람이 직접 단 장르), 없으면 제목 키워드로 추정
+        doc_type = doc.get("type") or infer_type(title)
         pieces = atomic_pieces(doc["text"])
         chunks = merge_pieces(pieces)
         for i, chunk in enumerate(chunks, start=1):

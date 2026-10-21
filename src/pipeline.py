@@ -232,8 +232,9 @@ def translate_with_verification(
 
     무료 티어 주의: claim 추출 모델(verify.py의 gemini-3.6-flash)은 분당 5회·하루 20회
     한도가 있어 검증 1회(claim 2회)가 하루 한도의 10%를 씁니다. max_retries를 너무 높이지
-    마세요. 지연시간은 검증 쪽 claim 추출 LLM이 대부분을 차지합니다(소표본 실측: 재번역
-    없는 경우 약 7~15초, scripts/measure_pipeline.py --mode live).
+    마세요. 지연시간은 검증 쪽 claim 추출 LLM이 대부분을 차지합니다(소표본 실측, 각 경우
+    1~2건: 재번역 없음 약 7~15초, 재번역 1회 약 30초, 2회 약 55~65초. 생성은 1회당 약 1초.
+    일부는 API 재시도 대기가 섞여 있음. scripts/measure_pipeline.py --mode live).
 
     Returns:
         {
