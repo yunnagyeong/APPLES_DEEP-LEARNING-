@@ -1,0 +1,37 @@
+﻿번호,원문,조건,샘플,번역,영어 헤징 단어 수(참고),기존 사람 라벨
+1,이 방법이 효율적이라고 생각한다. 하지만 데이터가 부족하면 성능이 떨어질 수도 있다.,수정 전,1,"This method proves highly efficient, though insufficient data volume inevitably degrades overall performance.",0,"헤징/주관성 손실 (생각한다 삭제, 수도 있다→inevitably)"
+1,이 방법이 효율적이라고 생각한다. 하지만 데이터가 부족하면 성능이 떨어질 수도 있다.,수정 전,2,"This approach proves remarkably efficient, yet performance inevitably suffers whenever data remains insufficient.",0,"헤징/주관성 손실 (생각한다 삭제, 수도 있다→inevitably)"
+1,이 방법이 효율적이라고 생각한다. 하지만 데이터가 부족하면 성능이 떨어질 수도 있다.,수정 후,1,"I think this method is efficient, yet performance might drop should data run short.",2,"헤징/주관성 손실 (생각한다 삭제, 수도 있다→inevitably)"
+1,이 방법이 효율적이라고 생각한다. 하지만 데이터가 부족하면 성능이 떨어질 수도 있다.,수정 후,2,"I think this method is efficient, yet insufficient data might degrade performance.",2,"헤징/주관성 손실 (생각한다 삭제, 수도 있다→inevitably)"
+2,"아직 확실하지는 않지만, 이 접근법이 더 나을 것 같다.",수정 전,1,"Although it is not yet certain, this approach seems to be better.",1,없음
+2,"아직 확실하지는 않지만, 이 접근법이 더 나을 것 같다.",수정 전,2,"While it remains uncertain, this approach appears superior.",1,없음
+2,"아직 확실하지는 않지만, 이 접근법이 더 나을 것 같다.",수정 후,1,"It is not entirely certain yet, but this approach seems better.",1,없음
+2,"아직 확실하지는 않지만, 이 접근법이 더 나을 것 같다.",수정 후,2,"While it is not yet certain, this approach seems better.",1,없음
+3,이 결과는 우연일 수도 있다.,수정 전,1,This outcome could simply be a matter of coincidence.,1,없음
+3,이 결과는 우연일 수도 있다.,수정 전,2,This outcome could merely be a coincidence.,1,없음
+3,이 결과는 우연일 수도 있다.,수정 후,1,This result might be a coincidence.,1,없음
+3,이 결과는 우연일 수도 있다.,수정 후,2,This result might simply be a coincidence.,1,없음
+4,좀 더 검증이 필요해 보인다.,수정 전,1,Further validation appears necessary.,1,"헤징 손실 (~해 보인다 삭제, 단정적 지시문으로 변경)"
+4,좀 더 검증이 필요해 보인다.,수정 전,2,Substantial validation remains necessary.,0,"헤징 손실 (~해 보인다 삭제, 단정적 지시문으로 변경)"
+4,좀 더 검증이 필요해 보인다.,수정 후,1,It seems to require further verification.,1,"헤징 손실 (~해 보인다 삭제, 단정적 지시문으로 변경)"
+4,좀 더 검증이 필요해 보인다.,수정 후,2,Further verification appears necessary.,1,"헤징 손실 (~해 보인다 삭제, 단정적 지시문으로 변경)"
+5,나는 이 프레임워크가 제일 편하다고 생각한다.,수정 전,1,I find this framework to be the most comfortable option.,0,없음
+5,나는 이 프레임워크가 제일 편하다고 생각한다.,수정 전,2,This framework remains the most comfortable option for me.,0,없음
+5,나는 이 프레임워크가 제일 편하다고 생각한다.,수정 후,1,I think this framework is the most comfortable one.,1,없음
+5,나는 이 프레임워크가 제일 편하다고 생각한다.,수정 후,2,I think this framework is the most comfortable one for me.,1,없음
+6,내 생각엔 이 설계가 더 낫다.,수정 전,1,I maintain that this design is superior.,0,"Unsupported Addition + 주관성 손실 (내 생각엔→clearly, 없는 근거 추가)"
+6,내 생각엔 이 설계가 더 낫다.,수정 전,2,I maintain that this design is superior.,0,"Unsupported Addition + 주관성 손실 (내 생각엔→clearly, 없는 근거 추가)"
+6,내 생각엔 이 설계가 더 낫다.,수정 후,1,I think this design is better.,1,"Unsupported Addition + 주관성 손실 (내 생각엔→clearly, 없는 근거 추가)"
+6,내 생각엔 이 설계가 더 낫다.,수정 후,2,I believe this design is better.,1,"Unsupported Addition + 주관성 손실 (내 생각엔→clearly, 없는 근거 추가)"
+7,개인적으로는 이 결과에 만족한다.,수정 전,1,"Personally, I am quite satisfied with this outcome.",0,없음
+7,개인적으로는 이 결과에 만족한다.,수정 전,2,"Personally, this outcome satisfies me completely.",0,없음
+7,개인적으로는 이 결과에 만족한다.,수정 후,1,"Personally, I am satisfied with this outcome.",0,없음
+7,개인적으로는 이 결과에 만족한다.,수정 후,2,"Personally, I am satisfied with this outcome.",0,없음
+12,이 방법은 반드시 실패한다.,수정 전,1,This method inevitably fails.,0,없음
+12,이 방법은 반드시 실패한다.,수정 전,2,This method invariably fails.,0,없음
+12,이 방법은 반드시 실패한다.,수정 후,1,This method inevitably fails.,0,없음
+12,이 방법은 반드시 실패한다.,수정 후,2,This method inevitably fails.,0,없음
+28,조건이 맞으면 성능이 개선된다.,수정 전,1,Performance improves when conditions are met.,0,없음
+28,조건이 맞으면 성능이 개선된다.,수정 전,2,Performance improves when the conditions are met.,0,없음
+28,조건이 맞으면 성능이 개선된다.,수정 후,1,Performance improves when the conditions are met.,0,없음
+28,조건이 맞으면 성능이 개선된다.,수정 후,2,Performance improves when conditions are met.,0,없음

@@ -176,7 +176,7 @@ def _retranslate_with_feedback(
     client = _ensure_client()
 
     # generate.py에 이미 있는 스타일 지시문 변환 함수 재사용
-    from .generate import _style_profile_to_instructions
+    from .generate import HEDGE_PRESERVATION_RULE, _style_profile_to_instructions
 
     style_instructions = _style_profile_to_instructions(style_profile)
     issues_text = _format_failure_reasons(failure_reasons)
@@ -197,6 +197,7 @@ Please produce a corrected English translation that:
 2. Still preserves the writer's personal style:
 {style_instructions}
 3. Does not introduce any new problems (no fabricated content, no dropped claims, no reversed meaning)
+4. {HEDGE_PRESERVATION_RULE}
 
 Reference examples of the writer's Korean style:
 {_format_examples(examples)}

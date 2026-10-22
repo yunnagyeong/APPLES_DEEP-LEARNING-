@@ -23,6 +23,13 @@ LOW_SIMILARITY_THRESHOLD = 0.55
 LEXICAL_DIVERSITY_LOW = 50.0
 LEXICAL_DIVERSITY_HIGH = 72.0
 
+# 모든 사용자에게 공통으로 들어가는 의미 보존 규칙(개인 문체 지시가 아님). 스타일 지시문이
+# 헤징을 지우거나 단언을 강화하는 방향으로 작동하지 않도록 프롬프트 본문에 따로 둡니다.
+HEDGE_PRESERVATION_RULE = (
+    "Preserve every hedge and qualifier in the source (e.g., 'I think', 'may', 'seems'); "
+    "never strengthen or weaken a claim"
+)
+
 _client = None
 
 
@@ -105,23 +112,16 @@ def _style_profile_to_instructions(profile: dict) -> str:
     else:
         lines.append("Use longer, more complex sentences (8+ words on average)")
 
-    # 2. 형식성
+    # 2. 형식성: 합쇼체 비율이 높은 경우에만 지시합니다.
+    #    예전에는 값이 낮으면 "casual, conversational tone"을 넣었는데, 한다체 학술·에세이
+    #    글(값 0)에 구어체로 쓰라고 지시하는 오류였습니다(D-003).
     formality = profile.get("formality_score", 0)
     if formality >= 0.7:
         lines.append("Use formal, academic or professional tone")
-    elif formality <= 0.3:
-        lines.append("Use casual, conversational tone")
-    else:
-        lines.append("Use neutral, balanced tone")
 
-    # 3. 직설성
-    directness = profile.get("directness_score", 0)
-    if directness >= 0.7:
-        lines.append("Be direct and assertive; use imperative or present tense actively")
-    elif directness <= 0.3:
-        lines.append("Be diplomatic and hedged; use conditionals and softening phrases")
-    else:
-        lines.append("Balance directness with diplomacy")
+    # 3. 직설성: 지시문에서 제외합니다. directness_score는 "이다/한다/하다 종결 비율"이라
+    #    직설성이 아닌 서술어 유형이고, 낮을 때 "diplomatic and hedged"는 헤징 추가를
+    #    유도해 의미 보존과 충돌합니다(D-003). 상대 기준(z-점수)으로 재정의되면 다시 넣습니다.
 
     # 4. 논리적 연결
     logical_conn = profile.get("logical_connective_rate", 0)
@@ -130,27 +130,13 @@ def _style_profile_to_instructions(profile: dict) -> str:
     else:
         lines.append("Use minimal connectives; let ideas flow implicitly")
 
-    # 5. 헤징 (불확실성 표현)
-    hedging = profile.get("hedging_rate", 0)
-    if hedging >= 0.5:
-        lines.append("Use hedging expressions (may, seem, appear to, could) liberally")
-    else:
-        lines.append("Avoid hedging; be more affirmative")
+    # 5. 헤징: 개인 지표로 지시하지 않습니다. 모든 사람에게 공통인 의미 보존 규칙
+    #    (HEDGE_PRESERVATION_RULE)을 프롬프트 본문에 넣었습니다. "Avoid hedging"은
+    #    원문의 헤징 표현 손실(4주차 오류)과 같은 방향이라 삭제했습니다(D-003).
 
-    # 6. 결론 위치
-    conclusion = profile.get("conclusion_position", "mixed")
-    if conclusion == "front":
-        lines.append("State conclusions and main points at the beginning")
-    elif conclusion == "back":
-        lines.append("Build up to conclusions; save main points for the end")
-    # "mixed"는 특별한 지시 안 함
-
-    # 7. 사례/예시 사용
-    example_rate = profile.get("example_usage_rate", 0)
-    if example_rate >= 0.5:
-        lines.append("Include concrete examples and case illustrations")
-    else:
-        lines.append("Minimize examples; focus on abstract principles")
+    # 6~7. 결론 위치·예시 사용: 지시문에서 제외합니다(프로필 계산은 유지, 설명용).
+    #    "무엇을 어떤 순서로 쓰는가"라는 구성 층위라 번역에서 따르게 하면 내용 재배열·
+    #    예시 추가를 유도합니다(D-002·D-003).
 
     # 8. 어휘 다양성
     lex_div = profile.get("lexical_diversity", 0)
@@ -160,14 +146,8 @@ def _style_profile_to_instructions(profile: dict) -> str:
         lines.append("Use consistent, repeated key terms for clarity")
     # 중간 구간은 특별한 지시 안 함
 
-    # 9. 단락 길이
-    para_len = profile.get("paragraph_length_avg", 0)
-    if para_len <= 2:
-        lines.append("Keep paragraphs short (2 sentences or fewer)")
-    elif para_len <= 5:
-        lines.append("Use moderate paragraph length (3-5 sentences)")
-    else:
-        lines.append("Use longer, more developed paragraphs (6+ sentences)")
+    # 9. 단락 길이: 지시문에서 제외합니다. 원문 문단 구분이 사람마다 달라 문체 지표가
+    #    아니고, 구성 층위입니다(D-003).
 
     return "\n".join(f"- {line}" for line in lines)
 
@@ -226,6 +206,7 @@ Your task:
 2. Preserve all content (information, arguments, structure)
 3. Adapt the writing style to match the characteristics above
 4. Do NOT summarize, paraphrase, or omit details—maintain the original scope and tone
+5. {HEDGE_PRESERVATION_RULE}
 
 Korean text to translate:
 {korean_text}
