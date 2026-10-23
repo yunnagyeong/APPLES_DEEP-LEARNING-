@@ -1,0 +1,24 @@
+{
+  "n_docs": 67,
+  "counts": {
+    "ganghee/essay": 3,
+    "ganghee/report": 12,
+    "nakyung/essay": 11,
+    "nakyung/report": 10,
+    "suyoung/essay": 14,
+    "suyoung/report": 17
+  },
+  "kiwipiepy": "0.24.0",
+  "result": {
+    "기능 형태소 top100": {
+      "author_loo": 0.9,
+      "cross_genre": 0.76,
+      "genre_guess": 0.69
+    },
+    "내용어 top200 (주제 대조군)": {
+      "author_loo": 0.76,
+      "cross_genre": 0.63,
+      "genre_guess": 0.75
+    }
+  }
+}

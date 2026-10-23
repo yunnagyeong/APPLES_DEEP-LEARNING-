@@ -4,6 +4,7 @@
 그 순간의 문맥(In-Context Learning)만으로 결과를 생성합니다.
 """
 
+import json
 import sys
 
 from google import genai
@@ -17,11 +18,77 @@ from .retry import BACKOFF_FACTOR, INITIAL_DELAY, RETRY_ATTEMPTS, call_with_retr
 # 실제 분포를 보고 조정하세요. (0~1 범위, 코사인 유사도 기준)
 LOW_SIMILARITY_THRESHOLD = 0.55
 
-# lexical_diversity는 MTLD라서 0~1 척도가 아닙니다(대략 수십 단위). 아래 기준값은 강희·수영·나경
-# raw 코퍼스 문서 52편의 문서별 MTLD를 3등분한 경계(50.5, 71.7)를 반올림한 잠정값입니다.
-# 코퍼스가 늘거나 바뀌면 `python scripts/analyze_lexical_diversity.py`로 다시 계산하세요.
-LEXICAL_DIVERSITY_LOW = 50.0
-LEXICAL_DIVERSITY_HIGH = 72.0
+# 스타일 지표는 절대 임계값이 아니라 효과 크기 d로 해석합니다(투두 23번, D-003):
+#   d = (본인 평균 - 나머지 사람들 평균) / 사람 안(풀링) 표준편차
+# 본인 값은 팀 작성자(ganghee/nakyung/suyoung)면 기준 코퍼스의 문서별 평균(기준 분포와 같은
+# 계산 방식), 팀 밖 사용자면 프로필 값을 씁니다. 팀 작성자는 문서를 다시 뽑았을 때 d의 부호가
+# STYLE_SIGN_KEEP_MIN 이상 유지되는 지표만 지시합니다(D-006, build_style_reference.py가 계산).
+# 기준값은 data/style_reference.json (scripts/build_style_reference.py로 생성, 코퍼스 essay+report
+# 문서별 값). |d| >= STYLE_D_THRESHOLD일 때만 그 방향으로 지시합니다. 0.5는 Cohen의 "중간 효과"
+# 관례값을 잠정으로 쓴 것이고 이 코퍼스에서 검증한 값이 아닙니다(3명·67편 소표본).
+STYLE_REFERENCE_PATH = config.DATA_DIR / "style_reference.json"
+STYLE_D_THRESHOLD = 0.5
+STYLE_SIGN_KEEP_MIN = 0.90
+
+_style_reference_cache: dict | None = None
+
+
+def _load_style_reference() -> dict | None:
+    """data/style_reference.json의 metrics 딕셔너리. 없으면 None(경고 후 개인 지시 없음)."""
+    global _style_reference_cache
+    if _style_reference_cache is None:
+        try:
+            with open(STYLE_REFERENCE_PATH, encoding="utf-8") as f:
+                _style_reference_cache = json.load(f)["metrics"]
+        except FileNotFoundError:
+            print(f"[generate] {STYLE_REFERENCE_PATH} 없음: scripts/build_style_reference.py를 "
+                  "실행하세요. 스타일 지시문 없이 진행합니다.", file=sys.stderr)
+            _style_reference_cache = {}
+    return _style_reference_cache or None
+
+
+def style_profile_effect_size(profile: dict, user: str | None = None) -> dict[str, float]:
+    """효과 크기 d = (본인 - 나머지 사람들 평균) / 사람 안 표준편차. 기준 파일이 없으면 빈 dict.
+
+    user가 기준 코퍼스 작성자면 미리 계산된 값(문서별 평균 기준 author_d)을 쓰고, 아니면(팀 밖
+    사용자) 프로필 값을 세 사람 문서 평균의 단순 평균과 비교한다.
+    """
+    ref = _load_style_reference()
+    if not ref:
+        return {}
+    out = {}
+    for m, r in ref.items():
+        if user in r.get("author_d", {}):
+            out[m] = r["author_d"][user]
+        elif m in profile and r["within_sd"] > 0:
+            out[m] = (profile[m] - sum(r["author_mean"].values()) / len(r["author_mean"])) / r["within_sd"]
+    return out
+
+
+def _stable_metrics(user: str | None) -> set[str]:
+    """지시문에 써도 되는 지표: 팀 작성자는 d 부호 유지 비율이 STYLE_SIGN_KEEP_MIN 이상인 것만.
+    팀 밖 사용자는 부트스트랩 값이 없어 전부 허용(d 크기 조건만 적용)."""
+    ref = _load_style_reference() or {}
+    return {
+        m for m, r in ref.items()
+        if user not in r.get("author_sign_keep", {}) or r["author_sign_keep"][user] >= STYLE_SIGN_KEEP_MIN
+    }
+
+
+# 문장 경계·접속 표현 보존 공통 규칙(D-006). 문장 길이·접속어 사용량은 원문에 이미 들어 있어서
+# 개인 지시가 비어도, 모델이 문장을 쪼개거나 합치고 접속어를 빠뜨려 평준화하는 것을 막습니다.
+# 번역·재번역 프롬프트의 HEDGE_PRESERVATION_RULE 다음 항목으로 붙고, 비교 실험에서
+# STRUCTURE_PRESERVATION_RULES = ()로 바꾸면 빠집니다.
+STRUCTURE_PRESERVATION_RULES = (
+    "Keep the source's sentence boundaries: do not split one sentence into several or merge several into one",
+    "Keep every connective and transition expression of the source (e.g., however, therefore, in addition)",
+)
+
+
+def numbered_extra_rules(start: int) -> str:
+    """공통 보존 규칙(문장 경계·접속 표현)을 start번부터 번호 붙여 줄바꿈으로 이은 문자열. 없으면 빈 문자열."""
+    return "".join(f"\n{start + i}. {r}" for i, r in enumerate(STRUCTURE_PRESERVATION_RULES))
+
 
 # 모든 사용자에게 공통으로 들어가는 의미 보존 규칙(개인 문체 지시가 아님). 스타일 지시문이
 # 헤징을 지우거나 단언을 강화하는 방향으로 작동하지 않도록 프롬프트 본문에 따로 둡니다.
@@ -95,22 +162,27 @@ Cross-Lingual Style Mapping:
 - Gemini에 프롬프트 전달 → 영어 번역 생성
 """
 
-def _style_profile_to_instructions(profile: dict) -> str:
+def _style_profile_to_instructions(
+    profile: dict, user: str | None = None, d_threshold: float | None = None
+) -> str:
     """StyleProfile 딕셔너리를 영어 스타일 지시문으로 변환.
 
-    한국어 문체 특징을 영어로 설명하되, 영어 쓰기의 뉘앙스를 고려합니다.
-    예: formality_score 0.8 → "Use formal, professional vocabulary"
+    각 지표를 효과 크기 d(나머지 사람들 대비, 사람 안 표준편차 단위)로 바꿔
+    |d| >= d_threshold(기본 STYLE_D_THRESHOLD)이고 부호가 안정적인(STYLE_SIGN_KEEP_MIN) 방향만 "평균보다 ~한 편" 식으로 지시합니다(23번). 한국어 어절 수 같은 절대값을 영어 단어 수로
+    옮기던 이전 방식은 사람 구분 없이 같은 줄이 나왔습니다. 쓰는 지표는 sentence_length_avg,
+    logical_connective_rate, lexical_diversity입니다.
     """
+    t = STYLE_D_THRESHOLD if d_threshold is None else d_threshold
+    stable = _stable_metrics(user)
+    z = {m: v for m, v in style_profile_effect_size(profile, user).items() if m in stable}
     lines = []
 
     # 1. 문장 길이
-    sent_len = profile.get("sentence_length_avg", 0)
-    if sent_len <= 3:
-        lines.append("Use short, concise sentences (3-4 words on average)")
-    elif sent_len <= 6:
-        lines.append("Use moderate sentence length (5-7 words on average)")
-    else:
-        lines.append("Use longer, more complex sentences (8+ words on average)")
+    zs = z.get("sentence_length_avg", 0.0)
+    if zs >= t:
+        lines.append("Tend toward longer, more complex sentences than average")
+    elif zs <= -t:
+        lines.append("Tend toward shorter, more concise sentences than average")
 
     # 2. 형식성: 합쇼체 비율이 높은 경우에만 지시합니다.
     #    예전에는 값이 낮으면 "casual, conversational tone"을 넣었는데, 한다체 학술·에세이
@@ -121,14 +193,12 @@ def _style_profile_to_instructions(profile: dict) -> str:
 
     # 3. 직설성: 지시문에서 제외합니다. directness_score는 "이다/한다/하다 종결 비율"이라
     #    직설성이 아닌 서술어 유형이고, 낮을 때 "diplomatic and hedged"는 헤징 추가를
-    #    유도해 의미 보존과 충돌합니다(D-003). 상대 기준(z-점수)으로 재정의되면 다시 넣습니다.
+    #    유도해 의미 보존과 충돌합니다(D-003). 서술어 종결 성향(copula)으로 재정의되면 다시 넣습니다.
 
-    # 4. 논리적 연결
-    logical_conn = profile.get("logical_connective_rate", 0)
-    if logical_conn >= 0.5:
-        lines.append("Use explicit logical connectives (however, therefore, as a result)")
-    else:
-        lines.append("Use minimal connectives; let ideas flow implicitly")
+    # 4. 논리적 연결: 많이 쓰는 쪽만 지시합니다. 적게 쓰는 쪽("Use minimal connectives")은
+    #    원문 접속어를 지우는 방향이라 의미 보존(논리 연결어 누락)과 충돌할 수 있어 뺐습니다.
+    if z.get("logical_connective_rate", 0.0) >= t:
+        lines.append("Use explicit logical connectives (however, therefore, as a result) more than average")
 
     # 5. 헤징: 개인 지표로 지시하지 않습니다. 모든 사람에게 공통인 의미 보존 규칙
     #    (HEDGE_PRESERVATION_RULE)을 프롬프트 본문에 넣었습니다. "Avoid hedging"은
@@ -138,13 +208,12 @@ def _style_profile_to_instructions(profile: dict) -> str:
     #    "무엇을 어떤 순서로 쓰는가"라는 구성 층위라 번역에서 따르게 하면 내용 재배열·
     #    예시 추가를 유도합니다(D-002·D-003).
 
-    # 8. 어휘 다양성
-    lex_div = profile.get("lexical_diversity", 0)
-    if lex_div >= LEXICAL_DIVERSITY_HIGH:
+    # 8. 어휘 다양성 (MTLD)
+    zl = z.get("lexical_diversity", 0.0)
+    if zl >= t:
         lines.append("Use varied vocabulary; avoid repetition")
-    elif lex_div < LEXICAL_DIVERSITY_LOW:
+    elif zl <= -t:
         lines.append("Use consistent, repeated key terms for clarity")
-    # 중간 구간은 특별한 지시 안 함
 
     # 9. 단락 길이: 지시문에서 제외합니다. 원문 문단 구분이 사람마다 달라 문체 지표가
     #    아니고, 구성 층위입니다(D-003).
@@ -190,7 +259,7 @@ def translate_with_style(
         )
 
     # 2. StyleProfile → 영어 스타일 지시문
-    style_instructions = _style_profile_to_instructions(style_profile)
+    style_instructions = _style_profile_to_instructions(style_profile, user)
 
     # 3. 프롬프트 구성
     prompt = f"""You are translating Korean writing to English while preserving the writer's personal style.
@@ -206,7 +275,7 @@ Your task:
 2. Preserve all content (information, arguments, structure)
 3. Adapt the writing style to match the characteristics above
 4. Do NOT summarize, paraphrase, or omit details—maintain the original scope and tone
-5. {HEDGE_PRESERVATION_RULE}
+5. {HEDGE_PRESERVATION_RULE}{numbered_extra_rules(6)}
 
 Korean text to translate:
 {korean_text}

@@ -167,6 +167,7 @@ def _retranslate_with_feedback(
     failure_reasons: list[dict],
     style_profile: dict,
     examples: list[dict],
+    user: str | None = None,
 ) -> str:
     """이전 번역 + 검증 실패 사유를 프롬프트에 넣어 재생성.
 
@@ -176,9 +177,9 @@ def _retranslate_with_feedback(
     client = _ensure_client()
 
     # generate.py에 이미 있는 스타일 지시문 변환 함수 재사용
-    from .generate import HEDGE_PRESERVATION_RULE, _style_profile_to_instructions
+    from .generate import HEDGE_PRESERVATION_RULE, _style_profile_to_instructions, numbered_extra_rules
 
-    style_instructions = _style_profile_to_instructions(style_profile)
+    style_instructions = _style_profile_to_instructions(style_profile, user)
     issues_text = _format_failure_reasons(failure_reasons)
 
     prompt = f"""You previously translated the Korean text below, but automated verification found issues with your translation.
@@ -197,7 +198,7 @@ Please produce a corrected English translation that:
 2. Still preserves the writer's personal style:
 {style_instructions}
 3. Does not introduce any new problems (no fabricated content, no dropped claims, no reversed meaning)
-4. {HEDGE_PRESERVATION_RULE}
+4. {HEDGE_PRESERVATION_RULE}{numbered_extra_rules(5)}
 
 Reference examples of the writer's Korean style:
 {_format_examples(examples)}
@@ -278,6 +279,7 @@ def translate_with_verification(
             verification["failure_reasons"],
             style_profile,
             examples,
+            user,
         )
 
     return {
