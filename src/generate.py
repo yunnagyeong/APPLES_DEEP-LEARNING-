@@ -47,6 +47,30 @@ def _load_style_reference() -> dict | None:
     return _style_reference_cache or None
 
 
+# 기능어 선택 프로필(24번): 같은 기능을 어떤 표현으로 쓰는지가 사람마다 갈리는 정도(d)가 큰
+# 그룹만 영어 지시로 옮깁니다. 지표 이름은 fw_<그룹>(style_features.FUNCTION_WORD_GROUPS).
+# D-007: 원문에 그 기능이 있을 때만 "같은 기능의 표현 중 무엇을 고르는가"를 정하는 선택형 문구입니다
+# ("Where the source ... render it with ..."). 원문에 없던 대조·결론·이유를 새로 넣게 하지 않습니다.
+# d가 양수(팀 나머지보다 많이 씀)인 방향만 지시하고, 적게 쓰는 방향은 지시하지 않습니다(그 표현을
+# 피하라고 하면 원문 의미 표지를 지울 수 있음). 대조 표현 그룹(however/but)은 둘 다 걸리면 d가 큰 쪽만.
+FUNCTION_WORD_INSTRUCTIONS = {
+    "however": "Where the source expresses contrast, render it with a formal marker such as 'however' rather than 'but'",
+    "but": "Where the source expresses contrast, render it with plain 'but' rather than a formal marker",
+    "whereas": "Where the source contrasts two things, render it with 'whereas' or 'on the other hand'",
+    "therefore": "Where the source states a conclusion, render it with 'therefore' or 'thus'",
+    "causal": "Where the source gives a reason, render it with 'since' or 'because'",
+    "purpose_formal": "Where the source states a purpose, render it with 'in order to'",
+}
+FUNCTION_WORD_MAX_LINES = 2
+
+
+def _profile_value(profile: dict, metric: str) -> float | None:
+    """프로필에서 지표 값을 꺼낸다. fw_<그룹>은 profile["function_word_choice"] 안에 있다."""
+    if metric.startswith("fw_"):
+        return (profile.get("function_word_choice") or {}).get(metric[3:])
+    return profile.get(metric)
+
+
 def style_profile_effect_size(profile: dict, user: str | None = None) -> dict[str, float]:
     """효과 크기 d = (본인 - 나머지 사람들 평균) / 사람 안 표준편차. 기준 파일이 없으면 빈 dict.
 
@@ -60,8 +84,8 @@ def style_profile_effect_size(profile: dict, user: str | None = None) -> dict[st
     for m, r in ref.items():
         if user in r.get("author_d", {}):
             out[m] = r["author_d"][user]
-        elif m in profile and r["within_sd"] > 0:
-            out[m] = (profile[m] - sum(r["author_mean"].values()) / len(r["author_mean"])) / r["within_sd"]
+        elif _profile_value(profile, m) is not None and r["within_sd"] > 0:
+            out[m] = (_profile_value(profile, m) - sum(r["author_mean"].values()) / len(r["author_mean"])) / r["within_sd"]
     return out
 
 
@@ -163,7 +187,8 @@ Cross-Lingual Style Mapping:
 """
 
 def _style_profile_to_instructions(
-    profile: dict, user: str | None = None, d_threshold: float | None = None
+    profile: dict, user: str | None = None, d_threshold: float | None = None,
+    source_text: str | None = None,
 ) -> str:
     """StyleProfile 딕셔너리를 영어 스타일 지시문으로 변환.
 
@@ -171,6 +196,11 @@ def _style_profile_to_instructions(
     |d| >= d_threshold(기본 STYLE_D_THRESHOLD)이고 부호가 안정적인(STYLE_SIGN_KEEP_MIN) 방향만 "평균보다 ~한 편" 식으로 지시합니다(23번). 한국어 어절 수 같은 절대값을 영어 단어 수로
     옮기던 이전 방식은 사람 구분 없이 같은 줄이 나왔습니다. 쓰는 지표는 sentence_length_avg,
     logical_connective_rate, lexical_diversity입니다.
+
+    source_text(번역할 한국어 입력)를 주면 기능어 줄(10번)은 입력에 그 표현이 실제로 있을 때만 넣습니다
+    (D-013: 28번에서 "원문에 그 기능이 있을 때만"이라는 문구를 모델이 지키지 못해 나열 "-며"를 "therefore"로,
+    "만들고"를 "in order to"로 바꾼 사례가 나옴 → 있는지 판단을 모델이 아니라 Kiwi 규칙이 합니다).
+    None이면 조건 없이 전부 넣습니다(프로필만 보는 확인·문서용).
     """
     t = STYLE_D_THRESHOLD if d_threshold is None else d_threshold
     stable = _stable_metrics(user)
@@ -180,9 +210,8 @@ def _style_profile_to_instructions(
     # 1. 문장 길이
     zs = z.get("sentence_length_avg", 0.0)
     if zs >= t:
-        lines.append("Tend toward longer, more complex sentences than average")
-    elif zs <= -t:
-        lines.append("Tend toward shorter, more concise sentences than average")
+        lines.append("Do not compress or simplify the source's long sentences")
+    # d<0("Do not pad or expand ...") 줄은 삭제(D-013): 28번에서 조건 간 문장 수 비율 차이가 없었음(효과 미확인).
 
     # 2. 형식성: 합쇼체 비율이 높은 경우에만 지시합니다.
     #    예전에는 값이 낮으면 "casual, conversational tone"을 넣었는데, 한다체 학술·에세이
@@ -195,10 +224,9 @@ def _style_profile_to_instructions(
     #    직설성이 아닌 서술어 유형이고, 낮을 때 "diplomatic and hedged"는 헤징 추가를
     #    유도해 의미 보존과 충돌합니다(D-003). 서술어 종결 성향(copula)으로 재정의되면 다시 넣습니다.
 
-    # 4. 논리적 연결: 많이 쓰는 쪽만 지시합니다. 적게 쓰는 쪽("Use minimal connectives")은
-    #    원문 접속어를 지우는 방향이라 의미 보존(논리 연결어 누락)과 충돌할 수 있어 뺐습니다.
-    if z.get("logical_connective_rate", 0.0) >= t:
-        lines.append("Use explicit logical connectives (however, therefore, as a result) more than average")
+    # 4. 논리적 연결: 지시문에서 제외합니다(D-007). "접속어를 평균보다 많이"는 원문에 없던 접속어(인과 주장)를
+    #    만들 수 있고, 원문 접속어 보존은 공통 규칙(STRUCTURE_PRESERVATION_RULES)이 맡습니다.
+    #    사람별 접속어 선택 차이는 아래 기능어 선택(10번)이 "원문에 있을 때 무엇으로 옮기는가"로 다룹니다.
 
     # 5. 헤징: 개인 지표로 지시하지 않습니다. 모든 사람에게 공통인 의미 보존 규칙
     #    (HEDGE_PRESERVATION_RULE)을 프롬프트 본문에 넣었습니다. "Avoid hedging"은
@@ -211,12 +239,29 @@ def _style_profile_to_instructions(
     # 8. 어휘 다양성 (MTLD)
     zl = z.get("lexical_diversity", 0.0)
     if zl >= t:
-        lines.append("Use varied vocabulary; avoid repetition")
+        lines.append("Where the source uses distinct terms, keep them distinct; do not collapse them into one word")
     elif zl <= -t:
         lines.append("Use consistent, repeated key terms for clarity")
 
     # 9. 단락 길이: 지시문에서 제외합니다. 원문 문단 구분이 사람마다 달라 문체 지표가
     #    아니고, 구성 층위입니다(D-003).
+
+    # 10. 기능어 선택(24번): d가 크고 안정적인 그룹 중 상위 FUNCTION_WORD_MAX_LINES개
+    fw = sorted(
+        ((v, m[3:]) for m, v in z.items() if m.startswith("fw_") and v >= t and m[3:] in FUNCTION_WORD_INSTRUCTIONS),
+        reverse=True,
+    )
+    if source_text is not None:  # 입력에 표현이 없는 그룹은 줄을 넣지 않음(상위 2개 자리도 차지하지 않게 먼저 거름)
+        from .style_features import source_gate_groups
+        present = source_gate_groups(source_text)
+        fw = [(v, g) for v, g in fw if g in present]
+    picked: list[str] = []
+    for v, g in fw:
+        if g in ("however", "but") and any(x in ("however", "but") for x in picked):
+            continue
+        picked.append(g)
+    picked = picked[:FUNCTION_WORD_MAX_LINES]
+    lines.extend(FUNCTION_WORD_INSTRUCTIONS[g] for g in picked)
 
     return "\n".join(f"- {line}" for line in lines)
 
@@ -259,7 +304,7 @@ def translate_with_style(
         )
 
     # 2. StyleProfile → 영어 스타일 지시문
-    style_instructions = _style_profile_to_instructions(style_profile, user)
+    style_instructions = _style_profile_to_instructions(style_profile, user, source_text=korean_text)
 
     # 3. 프롬프트 구성
     prompt = f"""You are translating Korean writing to English while preserving the writer's personal style.

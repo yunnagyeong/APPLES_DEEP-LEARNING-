@@ -179,7 +179,7 @@ def _retranslate_with_feedback(
     # generate.py에 이미 있는 스타일 지시문 변환 함수 재사용
     from .generate import HEDGE_PRESERVATION_RULE, _style_profile_to_instructions, numbered_extra_rules
 
-    style_instructions = _style_profile_to_instructions(style_profile, user)
+    style_instructions = _style_profile_to_instructions(style_profile, user, source_text=korean_text)
     issues_text = _format_failure_reasons(failure_reasons)
 
     prompt = f"""You previously translated the Korean text below, but automated verification found issues with your translation.

@@ -32,13 +32,19 @@ AUTHORS = ["ganghee", "nakyung", "suyoung"]
 TYPES = {"essay", "report"}
 # 프로필 키 이름 그대로 저장한다.
 METRICS = ["sentence_length_avg", "directness_score", "logical_connective_rate", "lexical_diversity"]
+# 기능어 선택 프로필(24번): 문서별 형태소 1000개당 빈도. 지표 이름은 fw_<그룹>
+FW_METRICS = [f"fw_{g}" for g in sf.FUNCTION_WORD_GROUPS]
+METRICS = METRICS + FW_METRICS
 MIN_CONTENT_TOKENS = 100  # MTLD 안정성 기준
 
 
 def doc_metrics(text: str) -> dict:
     sents = sf.split_sentences(text)
     lem = [t.form for t in sf._get_kiwi().tokenize(" ".join(sents)) if t.tag in sf.CONTENT_TAGS]
-    return {
+    toks = sf._get_kiwi().tokenize(text)
+    fw = {f"fw_{g}": 1000 * c / len(toks) for g, c in sf.count_function_word_groups(toks).items()}
+    return {**fw,
+        
         "n_sentences": len(sents),
         "n_content_tokens": len(lem),
         "sentence_length_avg": sf.sentence_length_avg(sents),

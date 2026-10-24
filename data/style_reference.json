@@ -7,7 +7,7 @@
     "suyoung": 31
   },
   "kiwipiepy": "0.24.0",
-  "built_at": "2026-10-23T01:09:11",
+  "built_at": "2026-10-23T03:42:37",
   "metrics": {
     "sentence_length_avg": {
       "mean": 16.352,
@@ -131,6 +131,192 @@
         "ganghee": 0.789,
         "nakyung": 0.783,
         "suyoung": 0.992
+      }
+    },
+    "fw_however": {
+      "mean": 0.4871,
+      "sd": 0.7857,
+      "n": 67,
+      "within_sd": 0.4838,
+      "author_mean": {
+        "ganghee": 0.1561,
+        "nakyung": 1.4019,
+        "suyoung": 0.0275
+      },
+      "author_sd": {
+        "ganghee": 0.3258,
+        "nakyung": 0.8109,
+        "suyoung": 0.1066
+      },
+      "author_n": {
+        "ganghee": 15,
+        "nakyung": 21,
+        "suyoung": 31
+      },
+      "author_d": {
+        "ganghee": -1.155,
+        "nakyung": 2.708,
+        "suyoung": -1.553
+      },
+      "author_sign_keep": {
+        "ganghee": 1.0,
+        "nakyung": 1.0,
+        "suyoung": 1.0
+      }
+    },
+    "fw_but": {
+      "mean": 0.738,
+      "sd": 0.9017,
+      "n": 67,
+      "within_sd": 0.8712,
+      "author_mean": {
+        "ganghee": 0.6879,
+        "nakyung": 0.3743,
+        "suyoung": 1.0087
+      },
+      "author_sd": {
+        "ganghee": 0.855,
+        "nakyung": 0.8543,
+        "suyoung": 0.8896
+      },
+      "author_n": {
+        "ganghee": 15,
+        "nakyung": 21,
+        "suyoung": 31
+      },
+      "author_d": {
+        "ganghee": -0.004,
+        "nakyung": -0.544,
+        "suyoung": 0.548
+      },
+      "author_sign_keep": {
+        "ganghee": 0.522,
+        "nakyung": 0.97,
+        "suyoung": 0.98
+      }
+    },
+    "fw_whereas": {
+      "mean": 0.2729,
+      "sd": 0.5732,
+      "n": 67,
+      "within_sd": 0.5641,
+      "author_mean": {
+        "ganghee": 0.1646,
+        "nakyung": 0.4803,
+        "suyoung": 0.1848
+      },
+      "author_sd": {
+        "ganghee": 0.3092,
+        "nakyung": 0.8885,
+        "suyoung": 0.3288
+      },
+      "author_n": {
+        "ganghee": 15,
+        "nakyung": 21,
+        "suyoung": 31
+      },
+      "author_d": {
+        "ganghee": -0.298,
+        "nakyung": 0.542,
+        "suyoung": -0.244
+      },
+      "author_sign_keep": {
+        "ganghee": 0.911,
+        "nakyung": 0.958,
+        "suyoung": 0.887
+      }
+    },
+    "fw_therefore": {
+      "mean": 0.9715,
+      "sd": 1.1227,
+      "n": 67,
+      "within_sd": 1.0589,
+      "author_mean": {
+        "ganghee": 0.5281,
+        "nakyung": 1.565,
+        "suyoung": 0.7841
+      },
+      "author_sd": {
+        "ganghee": 0.6645,
+        "nakyung": 1.1335,
+        "suyoung": 1.153
+      },
+      "author_n": {
+        "ganghee": 15,
+        "nakyung": 21,
+        "suyoung": 31
+      },
+      "author_d": {
+        "ganghee": -0.611,
+        "nakyung": 0.858,
+        "suyoung": -0.248
+      },
+      "author_sign_keep": {
+        "ganghee": 0.997,
+        "nakyung": 1.0,
+        "suyoung": 0.842
+      }
+    },
+    "fw_causal": {
+      "mean": 3.1625,
+      "sd": 2.4481,
+      "n": 67,
+      "within_sd": 2.1688,
+      "author_mean": {
+        "ganghee": 5.373,
+        "nakyung": 2.5652,
+        "suyoung": 2.4976
+      },
+      "author_sd": {
+        "ganghee": 2.892,
+        "nakyung": 1.6068,
+        "suyoung": 2.1001
+      },
+      "author_n": {
+        "ganghee": 15,
+        "nakyung": 21,
+        "suyoung": 31
+      },
+      "author_d": {
+        "ganghee": 1.31,
+        "nakyung": -0.632,
+        "suyoung": -0.678
+      },
+      "author_sign_keep": {
+        "ganghee": 1.0,
+        "nakyung": 0.997,
+        "suyoung": 0.994
+      }
+    },
+    "fw_purpose_formal": {
+      "mean": 0.4885,
+      "sd": 0.6826,
+      "n": 67,
+      "within_sd": 0.5482,
+      "author_mean": {
+        "ganghee": 0.0792,
+        "nakyung": 0.1219,
+        "suyoung": 0.9348
+      },
+      "author_sd": {
+        "ganghee": 0.2105,
+        "nakyung": 0.2055,
+        "suyoung": 0.7697
+      },
+      "author_n": {
+        "ganghee": 15,
+        "nakyung": 21,
+        "suyoung": 31
+      },
+      "author_d": {
+        "ganghee": -0.819,
+        "nakyung": -0.702,
+        "suyoung": 1.522
+      },
+      "author_sign_keep": {
+        "ganghee": 1.0,
+        "nakyung": 1.0,
+        "suyoung": 1.0
       }
     }
   }

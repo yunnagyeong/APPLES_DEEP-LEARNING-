@@ -1,0 +1,33 @@
+{
+  "n_docs": 67,
+  "groups": [
+    "however",
+    "but",
+    "whereas",
+    "therefore",
+    "causal",
+    "purpose_formal"
+  ],
+  "result": {
+    "기능어 선택 그룹 6개": {
+      "author_loo": 0.81,
+      "cross_genre": 0.75,
+      "genre_guess": 0.57
+    },
+    "기능 형태소 top100 (기준선)": {
+      "author_loo": 0.9,
+      "cross_genre": 0.76,
+      "genre_guess": 0.69
+    },
+    "top100 + 그룹": {
+      "author_loo": 0.93,
+      "cross_genre": 0.82,
+      "genre_guess": 0.73
+    },
+    "기능 형태소 중 무작위 6개 (50회 평균)": {
+      "author_loo": 0.51,
+      "cross_genre": 0.47,
+      "genre_guess": 0.6
+    }
+  }
+}

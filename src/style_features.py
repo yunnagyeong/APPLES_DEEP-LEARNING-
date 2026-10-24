@@ -40,6 +40,33 @@ DIRECT_ENDING_PATTERN = re.compile(r"(이다|한다|하다)\.?$")
 # NNG/NNP: 일반/고유명사, VV: 동사, VA: 형용사, MAG: 일반부사, XR: 어근.
 CONTENT_TAGS = {"NNG", "NNP", "VV", "VA", "MAG", "XR"}
 
+# 기능어 선택 프로필(투두 24번, D-003 B 작업 3): 같은 기능(대조·결론·이유·목적)을 한국어에서
+# 어떤 표현으로 쓰는지의 빈도. 값은 Kiwi 형태소 1000개당 등장 횟수. 규칙은 (형태, 품사 태그).
+# 그룹마다 영어 지시문(generate.py FUNCTION_WORD_INSTRUCTIONS)이 대응한다. 주제 의존 형태소
+# (시/NNB, 재/XPN 등)와 영어에서 선택지가 없는 것(와/과 병렬, 것 구문, 인용 -다고)은 뺐다.
+FUNCTION_WORD_GROUPS: dict[str, list[tuple[str, str]]] = {
+    "however": [("그러나", "MAJ")],
+    "but": [("하지만", "MAJ"), ("그렇지만", "MAJ")],
+    "whereas": [("반면", "NN")],
+    "therefore": [("따라서", "MAJ"), ("그러므로", "MAJ")],
+    "causal": [("므로", "EC"), ("으므로", "EC"), ("어서", "EC"), ("아서", "EC"), ("그래서", "MAJ")],
+    "purpose_formal": [("고자", "EC")],
+}
+
+# 기능어 지시문 적용 조건(D-013): 입력 한국어에 아래 표현이 실제로 있을 때만 그 그룹의 영어 줄을 지시문에
+# 넣는다(generate._style_profile_to_instructions의 source_text). 지표(FUNCTION_WORD_GROUPS)와 달리
+# ① 대조(however/but)는 그러나·하지만·그렇지만 어느 것이든(같은 기능이라 선택을 정하는 줄이 필요),
+# ② -어서·-아서는 뺀다(인과와 시간 순서가 섞여 "원문에 이유가 있다"를 장담할 수 없음). 지표 계산은 바꾸지 않았다.
+_CONTRAST_GATE = [("그러나", "MAJ"), ("하지만", "MAJ"), ("그렇지만", "MAJ")]
+FUNCTION_WORD_GATE: dict[str, list[tuple[str, str]]] = {
+    "however": _CONTRAST_GATE,
+    "but": _CONTRAST_GATE,
+    "whereas": [("반면", "NN")],
+    "therefore": [("따라서", "MAJ"), ("그러므로", "MAJ")],
+    "causal": [("므로", "EC"), ("으므로", "EC"), ("그래서", "MAJ")],
+    "purpose_formal": [("고자", "EC")],
+}
+
 _kiwi: Kiwi | None = None
 
 
@@ -189,6 +216,44 @@ def paragraph_length_avg(paragraphs: list[str]) -> float:
     return sum(counts) / len(counts)
 
 
+def count_function_word_groups(tokens) -> dict[str, int]:
+    """Kiwi 토큰 리스트에서 FUNCTION_WORD_GROUPS 그룹별 등장 횟수."""
+    counts = {g: 0 for g in FUNCTION_WORD_GROUPS}
+    for t in tokens:
+        for g, rules in FUNCTION_WORD_GROUPS.items():
+            if any(t.form == f and t.tag.startswith(tag) for f, tag in rules):
+                counts[g] += 1
+    return counts
+
+
+def count_gate_groups(tokens) -> dict[str, int]:
+    """Kiwi 토큰에서 FUNCTION_WORD_GATE(지시문 적용 조건) 그룹별 등장 횟수."""
+    counts = {g: 0 for g in FUNCTION_WORD_GATE}
+    for t in tokens:
+        for g, rules in FUNCTION_WORD_GATE.items():
+            if any(t.form == f and t.tag.startswith(tag) for f, tag in rules):
+                counts[g] += 1
+    return counts
+
+
+def source_gate_groups(text: str) -> set[str]:
+    """입력 한국어에 적용 조건 표현이 실제로 있는 기능어 그룹 집합."""
+    return {g for g, c in count_gate_groups(_get_kiwi().tokenize(text)).items() if c}
+
+
+def function_word_rates(texts: list[str]) -> dict[str, float]:
+    """여러 글을 합쳐 그룹별 기능어 빈도(형태소 1000개당)를 계산한다."""
+    kiwi = _get_kiwi()
+    totals = {g: 0 for g in FUNCTION_WORD_GROUPS}
+    n = 0
+    for text in texts:
+        toks = kiwi.tokenize(text)
+        n += len(toks)
+        for g, c in count_function_word_groups(toks).items():
+            totals[g] += c
+    return {g: round(1000 * c / n, 4) if n else 0.0 for g, c in totals.items()}
+
+
 def extract_style_profile(texts: list[str]) -> dict:
     """여러 원문(과거 과제물 등)을 받아 StyleProfile 딕셔너리를 반환한다.
 
@@ -215,5 +280,6 @@ def extract_style_profile(texts: list[str]) -> dict:
         "example_usage_rate": example_usage_rate(all_sentences),
         "lexical_diversity": lexical_diversity(all_sentences),
         "paragraph_length_avg": paragraph_length_avg(all_paragraphs),
+        "function_word_choice": function_word_rates(texts),
         "source_example_count": len(texts),
     }

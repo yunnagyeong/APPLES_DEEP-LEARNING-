@@ -1,0 +1,177 @@
+{
+  "source": "style_reference_docs_20261023_034237.csv",
+  "metrics": {
+    "sentence_length_avg": {
+      "n": 67,
+      "eta2_raw": 0.19,
+      "eta2_genre_ctrl": 0.19,
+      "p_strat": 0.001,
+      "eta2_genre": 0.08,
+      "essay": [
+        0.28,
+        0.016
+      ],
+      "report": [
+        0.12,
+        0.106
+      ]
+    },
+    "directness_score": {
+      "n": 67,
+      "eta2_raw": 0.29,
+      "eta2_genre_ctrl": 0.27,
+      "p_strat": 0.0,
+      "eta2_genre": 0.08,
+      "essay": [
+        0.02,
+        0.773
+      ],
+      "report": [
+        0.48,
+        0.0
+      ]
+    },
+    "logical_connective_rate": {
+      "n": 67,
+      "eta2_raw": 0.07,
+      "eta2_genre_ctrl": 0.07,
+      "p_strat": 0.096,
+      "eta2_genre": 0.0,
+      "essay": [
+        0.04,
+        0.597
+      ],
+      "report": [
+        0.11,
+        0.113
+      ]
+    },
+    "lexical_diversity": {
+      "n": 67,
+      "eta2_raw": 0.07,
+      "eta2_genre_ctrl": 0.08,
+      "p_strat": 0.056,
+      "eta2_genre": 0.04,
+      "essay": [
+        0.33,
+        0.005
+      ],
+      "report": [
+        0.01,
+        0.802
+      ]
+    },
+    "fw_however": {
+      "n": 67,
+      "eta2_raw": 0.63,
+      "eta2_genre_ctrl": 0.62,
+      "p_strat": 0.0,
+      "eta2_genre": 0.02,
+      "essay": [
+        0.64,
+        0.0
+      ],
+      "report": [
+        0.61,
+        0.0
+      ]
+    },
+    "fw_but": {
+      "n": 67,
+      "eta2_raw": 0.09,
+      "eta2_genre_ctrl": 0.11,
+      "p_strat": 0.022,
+      "eta2_genre": 0.06,
+      "essay": [
+        0.04,
+        0.567
+      ],
+      "report": [
+        0.32,
+        0.001
+      ]
+    },
+    "fw_whereas": {
+      "n": 67,
+      "eta2_raw": 0.06,
+      "eta2_genre_ctrl": 0.09,
+      "p_strat": 0.041,
+      "eta2_genre": 0.07,
+      "essay": [
+        0.04,
+        0.585
+      ],
+      "report": [
+        0.14,
+        0.051
+      ]
+    },
+    "fw_therefore": {
+      "n": 67,
+      "eta2_raw": 0.14,
+      "eta2_genre_ctrl": 0.14,
+      "p_strat": 0.005,
+      "eta2_genre": 0.0,
+      "essay": [
+        0.02,
+        0.743
+      ],
+      "report": [
+        0.39,
+        0.0
+      ]
+    },
+    "fw_causal": {
+      "n": 67,
+      "eta2_raw": 0.24,
+      "eta2_genre_ctrl": 0.22,
+      "p_strat": 0.001,
+      "eta2_genre": 0.01,
+      "essay": [
+        0.03,
+        0.659
+      ],
+      "report": [
+        0.37,
+        0.0
+      ]
+    },
+    "fw_purpose_formal": {
+      "n": 67,
+      "eta2_raw": 0.37,
+      "eta2_genre_ctrl": 0.42,
+      "p_strat": 0.0,
+      "eta2_genre": 0.06,
+      "essay": [
+        0.1,
+        0.248
+      ],
+      "report": [
+        0.69,
+        0.0
+      ]
+    }
+  },
+  "within_genre": {
+    "essay": {
+      "n": 28,
+      "counts": {
+        "ganghee": 3,
+        "nakyung": 11,
+        "suyoung": 14
+      },
+      "majority": 0.5,
+      "func_top100": 0.82
+    },
+    "report": {
+      "n": 39,
+      "counts": {
+        "ganghee": 12,
+        "nakyung": 10,
+        "suyoung": 17
+      },
+      "majority": 0.44,
+      "func_top100": 0.92
+    }
+  }
+}
