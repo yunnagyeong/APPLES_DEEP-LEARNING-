@@ -5,3 +5,4 @@ __pycache__/
 .vscode/
 data/style_profile_cache/
 data/failed_cases/
+.env
