@@ -1,6 +1,7 @@
 """조건 C(우리 팀 파이프라인)를 평가 문장 전체에 돌려 결과 CSV를 만듭니다.
 
 사용법 (프로젝트 루트): python scripts/run_condition_c.py --user ganghee [--retries 2] [--out results/v2]
+  긴 문단 포함 새 원문 16개: python scripts/run_condition_c.py --user ganghee --input data/measure/heldout_sources.jsonl --out results/v2_heldout
 - 7주차 결과(results/week7)는 레거시 검증으로 만든 것이라 덮어쓰지 않도록 기본 출력 폴더가 results/v2입니다.
 - 문장당 API: 번역 생성 1~3회 + 판정(VERIFY_MODEL) 1~3회 + 임베딩 2~4회. --workers개 문장을 동시에 처리.
 """
@@ -80,6 +81,8 @@ def save_csv(path, rows, fields):
 
 
 def run_case(case, profile):
+    import time
+    t0 = time.perf_counter()
     try:
         result = translate_with_verification(
             korean_text=case["source"], style_profile=profile, user=USER, max_retries=MAX_RETRIES,
@@ -91,14 +94,15 @@ def run_case(case, profile):
             "meaning_score_method": result.get("meaning_score_method"),
             "issues": "; ".join(f"{i['severity']}:{i['type']}" for i in result.get("issues", [])),
             "attempts": result.get("attempts"), "best_attempt": result.get("best_attempt"),
-            "judge_model": result.get("judge_model"), "error": "",
+            "judge_model": result.get("judge_model"),
+            "seconds": round(time.perf_counter() - t0, 1), "error": "",
         }
     except Exception as exc:
         return {
             "id": case["id"], "condition": "C", "source": case["source"], "translation": "",
             "verdict": "ERROR", "meaning_score": "", "meaning_score_method": "", "issues": "",
             "attempts": "", "best_attempt": "", "judge_model": "",
-            "error": f"{type(exc).__name__}: {exc}",
+            "seconds": round(time.perf_counter() - t0, 1), "error": f"{type(exc).__name__}: {exc}",
         }
 
 
@@ -119,6 +123,7 @@ def main():
             rows.sort(key=lambda r: order[str(r["id"])])
             save_csv(RESULT_PATH, rows, list(row.keys()))  # 중간에 중단돼도 끝난 결과는 보존
             print(f"[C] {n}/{len(cases)} | #{row['id']} Verdict={row['verdict']} | Score={row['meaning_score']}"
+                  f" | 시도 {row['attempts']} | {row['seconds']}초"
                   + (f" | {row['error']}" if row["error"] else ""))
 
     scores = [
@@ -131,9 +136,13 @@ def main():
         row["verdict"] for row in rows
     )
 
+    secs = [float(row["seconds"]) for row in rows if row.get("seconds") not in ("", None)]
     summary = {
         "condition": "C",
+        "user": USER,
         "total": len(rows),
+        "seconds_mean": round(statistics.mean(secs), 1) if secs else "",
+        "seconds_max": max(secs) if secs else "",
         "scored": len(scores),
         "mean": statistics.mean(scores) if scores else "",
         "median": statistics.median(scores) if scores else "",

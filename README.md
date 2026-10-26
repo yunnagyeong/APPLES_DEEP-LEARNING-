@@ -40,7 +40,9 @@ streamlit run app.py
 
 | 목적 | 명령 |
 |---|---|
-| 검증기를 사람 라벨 32건과 비교 | `python scripts/eval_verifier.py` (4건씩 동시 실행, 끊겨도 이어서 실행됨) |
+| 검증기 평가: 새 평가셋 64건 (긴 문단 포함) | `python scripts/eval_verifier.py --heldout --repeat 2` |
+| 검증기 평가: 기존 사람 라벨 32건 | `python scripts/eval_verifier.py` |
+| 긴 문단 포함 전체 파이프라인 | `python scripts/run_condition_c.py --user ganghee --input data/measure/heldout_sources.jsonl --out results/v2_heldout` |
 | 조건 C 일괄 실행 | `python scripts/run_condition_c.py --user ganghee [--workers 4]` → `results/v2/` |
 | 호출 수 확인(API 없음) | `python scripts/measure_pipeline.py --mode offline` |
 | 예시 재색인(예시 추가 후) | `python scripts/convert_data_to_examples.py <user>` → `python scripts/build_index.py <user>` |

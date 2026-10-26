@@ -166,7 +166,11 @@ _EN_WORDS = {
     "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
     "hundred": 100, "thousand": 1000, "million": 1_000_000, "billion": 1_000_000_000,
     "half": 0.5, "double": 2, "twice": 2, "single": 1, "dozen": 12,
+    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
 }
+# 달 이름(3월 → March). 조동사 may와 헷갈리지 않게 대문자로 시작할 때만 인정
+_EN_MONTHS = {m: i for i, m in enumerate(["January", "February", "March", "April", "May", "June", "July",
+                                           "August", "September", "October", "November", "December"], 1)}
 _KO_NATIVE = {"한": 1, "하나": 1, "두": 2, "둘": 2, "세": 3, "셋": 3, "네": 4, "넷": 4, "다섯": 5, "여섯": 6,
               "일곱": 7, "여덟": 8, "아홉": 9, "열": 10, "스무": 20, "스물": 20}
 _KO_COUNTERS = "가지|개|명|번|살|시간|달|해|권|편|장|차례|배|단계|대|군데|마리|주|일|년|분|초|층|줄|쪽|부분"
@@ -178,6 +182,14 @@ _NUM_RE = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?")
 
 def _norm(x: float) -> str:
     return f"{x:g}"
+
+
+_KO_ORDINAL_RE = re.compile(r"제\s?(\d+)|(\d+)\s?차(?![가-힣]*량)")  # 제1차, 2차 같은 서수
+
+
+def _ko_ordinals(text: str) -> set[str]:
+    """서수(제1차 세계대전, 2차 시험). 영어에서 First/I/1st 등으로 다양하게 쓰여 '원문 숫자 누락' 검사에서 뺌."""
+    return {_norm(float(m.group(1) or m.group(2))) for m in _KO_ORDINAL_RE.finditer(text)}
 
 
 def _ko_numbers(text: str) -> set[str]:
@@ -205,16 +217,19 @@ def _en_numbers(text: str) -> set[str]:
 
 
 def _en_number_words(text: str) -> set[str]:
-    return {_norm(v) for w, v in _EN_WORDS.items() if re.search(rf"\b{w}\b", text, re.I)}
+    words = {_norm(v) for w, v in _EN_WORDS.items() if re.search(rf"\b{w}\b", text, re.I)}
+    months = {_norm(v) for m, v in _EN_MONTHS.items() if re.search(rf"\b{m}\b", text)}
+    return words | months
 
 
 def check_numbers(source: str, translation: str) -> list[dict]:
     """원문 숫자(아라비아 숫자)가 번역문에 있는지, 번역문에 원문에 없는 숫자가 생겼는지."""
     ko, en = _ko_numbers(source), _en_numbers(translation)
     en_any = en | _en_number_words(translation)
+    ordinals = _ko_ordinals(source)
     ko_any = ko | _ko_native_numbers(source)
     issues = []
-    missing = sorted(n for n in ko if n not in en_any)
+    missing = sorted(n for n in ko if n not in en_any and n not in ordinals)
     # 원문 단위 표기(1만)와 영어(10,000)처럼 같은 수가 다르게 보이는 경우: 한 묶음 중 하나만 있으면 통과
     for m in re.finditer(r"(\d+(?:,\d{3})*(?:\.\d+)?)\s?([천만억조])", source):
         v = float(m.group(1).replace(",", ""))
