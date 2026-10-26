@@ -29,6 +29,8 @@ def translate_zero_shot(korean_text: str) -> str:
 Korean text:
 {korean_text}
 
+Output only the English translation, with no preface, notes, or quotation marks.
+
 English translation:"""
     return _generate(prompt, "baseline A 생성 호출")
 
@@ -44,6 +46,8 @@ Reference examples of the writer's Korean style (to understand tone and approach
 
 Korean text:
 {korean_text}
+
+Output only the English translation, with no preface, notes, or quotation marks.
 
 English translation:"""
     return _generate(prompt, "baseline B 생성 호출")
