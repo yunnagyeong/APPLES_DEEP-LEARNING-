@@ -233,15 +233,39 @@ Corrected translation:"""
     return response.text
 
 
+def _should_retranslate(verification: dict, policy: str) -> bool:
+    if policy == "all":
+        return True
+    if policy != "actionable":
+        raise ValueError(f"알 수 없는 retry_policy: {policy}")
+    return verification["verdict"] == "FAIL" or bool(
+        (verification.get("semantic_nuance") or {}).get("has_meaning_error")
+    )
+
+
 def translate_with_verification(
     korean_text: str,
     style_profile: dict,
     user: str,
     type_filter: str | None = None,
     max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_policy: str = "all",
+    examples: list[dict] | None = None,
 ) -> dict:
     """개인화 번역 -> 검증 -> (필요시) 실패 사유 기반 재번역 까지 처리하는 통합 함수.
 
+    retry_policy:
+      "all"        (기본, 예전 동작) PASS가 아니면 재번역
+      "actionable" FAIL이거나 Gemini 뉘앙스 점검도 오류를 찾았을 때만 재번역.
+                   NLI만 REVIEW를 주고 Gemini는 문제없다고 본 경우(예: #26 "데이터가 늘어나면서" 오탐)는
+                   재번역해도 검증기 판정이 바뀌지 않아 호출만 낭비되므로 건너뜀. 데모(app.py)용.
+    examples: 미리 검색해 둔 RAG 예시. 주면 검색을 건너뜀(app.py가 B·C 조건에 같은 검색 결과를 씀).
+
+    호출 수 — 경량화 후 (config.VERIFY_SINGLE_CALL=True, max_retries=2 최악, 503/429 재시도 제외):
+      - 번역·재번역 생성 3회 + 검증용 Gemini(3.6-flash) 3회(검증 1회당 1회) + 임베딩 4회
+        (RAG 1 + 첫 검증에서 원문·번역문 묶음 1 + 재검증마다 번역문 1) → 합계 10회
+      - 재번역 없음: 4회(3.6-flash 1회), 재번역 1회: 7회. scripts/measure_pipeline.py --mode offline
+    아래는 경량화 전 예전 코드 기준 기록입니다(VERIFY_SINGLE_CALL=False로 두면 검증 1회당 3.6-flash 3회).
     호출 수 (max_retries=2, 최악의 경우 = 재번역 2회까지 모두 사용. 503/429 재시도는 제외):
       - 번역·재번역 생성(Gemini) 3회
       - claim 추출(Gemini) 6회: 검증 1회당 원문·번역문 각 1회 × 검증 3회
@@ -269,17 +293,19 @@ def translate_with_verification(
     from .verify import verify_translation  # NLI 모델 로딩이 무거워서 실제 호출 시점에 import
 
     # 검색은 여기서 한 번만 하고, 첫 번역과 재번역에 같은 결과를 넘깁니다.
-    examples = retrieve_similar(korean_text, user, k=config.DEFAULT_TOP_K, type_filter=type_filter)
+    if examples is None:
+        examples = retrieve_similar(korean_text, user, k=config.DEFAULT_TOP_K, type_filter=type_filter)
     notice = _low_confidence_notice(examples)  # 번역문과 분리해서 결과 dict로만 전달
 
     translation = translate_with_style(
         korean_text, style_profile, user, type_filter=type_filter, examples=examples
     )
     history = []
+    source_cache: dict = {}  # 원문 임베딩·원문 claim을 시도 간 재사용
 
     total_attempts = max_retries + 1
     for attempt in range(1, total_attempts + 1):
-        verification = verify_translation(korean_text, translation)
+        verification = verify_translation(korean_text, translation, source_cache=source_cache)
         history.append(verification)
         verdict = verification["verdict"]
         print(f"[verify] 시도 {attempt}/{total_attempts}: verdict={verdict}")
@@ -289,6 +315,10 @@ def translate_with_verification(
 
         if attempt == total_attempts:
             print(f"[verify] 최대 시도({total_attempts}회) 도달 - 마지막 결과를 그대로 반환")
+            break
+
+        if not _should_retranslate(verification, retry_policy):
+            print("[verify] NLI 단독 REVIEW(Gemini는 오류 없음) - 재번역해도 판정이 안 바뀌어 건너뜀")
             break
 
         # FAIL, REVIEW 둘 다 재번역 대상. failure_reasons(전체) 기준으로 피드백 구성.

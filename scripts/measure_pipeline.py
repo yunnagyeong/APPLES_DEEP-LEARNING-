@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 DEFAULT_USER = "ganghee"
 ERROR_CASES = ROOT / "error_cases.csv"
 OUT_DIR = ROOT / "data" / "measure"
-WORST_CASE_CALLS = 18  # max_retries=2 기준 최악 호출 수 (7번 전)
+WORST_CASE_CALLS = 10  # max_retries=2 기준 최악 호출 수 (검증 경량화 후. 7번 전 18, 7번 후 16)
 PROMPTS = []  # 오프라인 모드에서 생성 모델에 보낸 프롬프트 기록
 
 
@@ -117,8 +117,11 @@ def install_hooks():
     retrieve.load_indexed_examples = timed("rag_load", retrieve.load_indexed_examples)
     retrieve.embed_text = timed("rag_embed", retrieve.embed_text)
     verify.embed_text = timed("sim_embed", verify.embed_text)
+    verify.embed_texts = timed("sim_embed", verify.embed_texts)
     verify.extract_claims = timed("claims", verify.extract_claims)
-    verify.nli_check = timed("nli", verify.nli_check)
+    verify.check_semantic_nuance = timed("claims", verify.check_semantic_nuance)
+    verify.analyze_meaning = timed("claims", verify.analyze_meaning)  # 묶음 호출(claim+뉘앙스 1회)
+    verify.nli_check_batch = timed("nli", verify.nli_check_batch)
     verify.call_with_retry = _wrap_call_with_retry(verify.call_with_retry)
     verify.verify_translation = timed("verify", verify.verify_translation)
 
@@ -160,6 +163,7 @@ def _install_offline_fakes(dim, fake_state):
 
     retrieve.embed_text = fake_embed
     verify.embed_text = fake_embed
+    verify.embed_texts = lambda texts, task_type="RETRIEVAL_DOCUMENT": [fake_embed(t) for t in texts]
 
     class _Models:
         def generate_content(self, model, contents):
@@ -169,12 +173,13 @@ def _install_offline_fakes(dim, fake_state):
     fake_client = SimpleNamespace(models=_Models())
     generate._ensure_client = lambda: fake_client
     pipeline._ensure_client = lambda: fake_client
+    no_err = {"has_meaning_error": False, "error_types": [], "explanation": ""}
     verify.extract_claims = lambda text, language="ko": ["claim"]
-    verify.nli_check = lambda premise, hypothesis: {
-        "label": fake_state["label"],
-        "confidence": 1.0,
-        "scores": {},
-    }
+    verify.check_semantic_nuance = lambda s, t: dict(no_err)
+    verify.analyze_meaning = lambda s, t, source_claims=None: {
+        "source_claims": source_claims or ["claim"], "translation_claims": ["claim"], "semantic_nuance": dict(no_err)}
+    verify.nli_check_batch = lambda pairs: [
+        {"label": fake_state["label"], "confidence": 1.0, "scores": {}} for _ in pairs]
 
 
 def run_offline(user):
@@ -211,7 +216,7 @@ def run_offline(user):
         verify.verify_translation = controlled
         result = pipeline.translate_with_verification("측정용 문장입니다.", profile, user, max_retries=2)
         n = REC.n
-        api_total = n["gen"] + n["regen"] + n["claims"] + n["rag_embed"] + n["sim_embed"]
+        api_total = n["gen"] + n["regen"] + n["claims"] + n["rag_embed"] + n["sim_embed"]  # claims = 검증용 3.6-flash 호출
         rows.append([
             fail_rounds, result["attempts"], result["verdict"], n["rag"], n["rag_load"],
             n["rag_embed"], n["gen"] + n["regen"], n["claims"], n["sim_embed"], n["nli"], api_total,
@@ -225,7 +230,8 @@ def run_offline(user):
     print("  ".join(f"{h:>8}" for h in head))
     for r in rows:
         print("  ".join(f"{str(v):>8}" for v in r))
-    print("\n기대값 — 7번 전 API합계 6/12/18, 검색 1/2/3 · 7번 후 API합계 6/11/16, 검색 1/1/1")
+    print("\n기대값 — 7번 전 API합계 6/12/18 · 7번 후 6/11/16 (뉘앙스 점검 추가 전 기준)")
+    print("        경량화 후(VERIFY_SINGLE_CALL=True) API합계 4/7/10, claim추출(=3.6-flash) 1/2/3")
     print("API합계 = 번역생성 + claim추출 + 검색임베딩 + 유사도임베딩 (NLI는 로컬이라 제외)")
     print("프롬프트crc = 생성 모델에 보낸 프롬프트 전체의 해시. 7번 전후로 같으면 번역 입력이 동일")
 

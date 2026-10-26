@@ -28,27 +28,81 @@ CONDITIONS = {
 #   B: src.baselines.translate_in_context
 #   C: src.pipeline.translate_with_verification  (Style Profile + RAG + NLI 검증·재번역)
 # 사이드바에서 "데모용 가짜 결과"를 켜면 API 호출 없이 화면만 확인할 수 있습니다.
+#
+# 속도 관련 (데모용 설정):
+#   - A·B·C를 동시에 실행합니다(스레드). 전체 대기시간 = 가장 느린 C 하나.
+#   - RAG 검색은 한 번만 하고 B·C가 같은 예시를 씁니다.
+#   - NLI 모델·Kiwi는 앱이 처음 뜰 때 한 번만 로딩합니다(st.cache_resource).
+#   - C는 재번역 최대 DEMO_MAX_RETRIES회, 고칠 수 있는 오류일 때만 재번역(retry_policy="actionable").
+#     실험 재현(7주차)은 scripts/run_condition_c.py의 기본값(재번역 2회, "all")을 쓰세요.
 # ==================================================
+DEMO_MAX_RETRIES = 1
+
+
 @st.cache_resource(show_spinner=False)
 def load_style_profile(user):
     from src.pipeline import _load_or_compute_style_profile
     return _load_or_compute_style_profile(user)
 
 
-def translate(korean_text, user, condition):
+@st.cache_resource(show_spinner="검증 모델(NLI)·형태소 분석기 불러오는 중... (처음 한 번만)")
+def warm_up_models():
+    from src import style_features as sf
+    from src.verify import load_nli_model
+    load_nli_model()
+    sf._get_kiwi().tokenize("준비")
+    return True
+
+
+def translate(korean_text, user, condition, examples=None):
     """번역 결과 dict: {"text": 영어 번역, "info": 화면에 덧붙일 짧은 설명}"""
     if condition == "A":
         from src.baselines import translate_zero_shot
         return {"text": translate_zero_shot(korean_text), "info": ""}
     if condition == "B":
         from src.baselines import translate_in_context
-        return {"text": translate_in_context(korean_text, user), "info": ""}
+        return {"text": translate_in_context(korean_text, user, examples=examples), "info": ""}
     from src.pipeline import translate_with_verification
-    result = translate_with_verification(korean_text, load_style_profile(user), user)
+    result = translate_with_verification(
+        korean_text, load_style_profile(user), user,
+        max_retries=DEMO_MAX_RETRIES, retry_policy="actionable", examples=examples,
+    )
     info = f"검증 {result['verdict']} · 시도 {result['attempts']}회"
+    if result.get("meaning_score") is not None:
+        info += f" · Meaning {result['meaning_score']:.0f}"
     if result.get("notice"):
-        info += f" · {result['notice']}"
+        info += f" · {result['notice'].strip()}"
     return {"text": result["translation"], "info": info}
+
+
+def run_all_conditions(source, user, use_dummy):
+    """A·B·C를 동시에 실행. (results, errors) 반환. 스레드 안에서는 st.* 를 부르지 않습니다."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def timed(c, examples):
+        start = time.time()
+        r = {"text": DUMMY_OUTPUTS[c], "info": "가짜 결과"} if use_dummy else translate(source, user, c, examples)
+        r["info"] = (r["info"] + " · " if r["info"] else "") + f"{time.time() - start:.1f}초"
+        return r
+
+    results, errors = {}, {}
+    examples = None
+    if not use_dummy:
+        try:
+            from src import config
+            from src.retrieve import retrieve_similar
+            examples = retrieve_similar(source, user, k=config.DEFAULT_TOP_K)
+        except BaseException:  # 실패하면 B·C가 각자 검색하도록 둠
+            examples = None
+    with ThreadPoolExecutor(max_workers=len(CONDITIONS)) as pool:
+        futures = {c: pool.submit(timed, c, examples) for c in CONDITIONS}
+        for c, f in futures.items():
+            try:
+                results[c] = f.result()
+            except BaseException as e:  # API 키 없음(sys.exit) 포함
+                errors[c] = ("API 키 없음 (.env의 GOOGLE_API_KEY 확인)" if isinstance(e, SystemExit)
+                             else f"{type(e).__name__}: {e}")
+    return results, errors
 
 
 # 파이프라인 연결 전/API 한도 소진 시 화면 확인용 가짜 결과
@@ -165,20 +219,13 @@ def main():
     source = st.text_area("한국어 원문", value=DUMMY_SOURCE, height=120)
 
     if st.button("번역 실행 및 지표 분석", type="primary", use_container_width=True):
-        results, errors = {}, {}
-        for c, label in CONDITIONS.items():
-            with st.spinner(f"{label} 번역 중... (C는 검증 때문에 10~60초 걸릴 수 있어요)"):
-                start = time.time()
-                try:
-                    if use_dummy:
-                        r = {"text": DUMMY_OUTPUTS[c], "info": "가짜 결과"}
-                    else:
-                        r = translate(source, PERSONAS[persona], c)
-                    r["info"] = (r["info"] + " · " if r["info"] else "") + f"{time.time() - start:.1f}초"
-                    results[c] = r
-                except BaseException as e:  # API 키 없음(sys.exit) 포함
-                    errors[c] = ("API 키 없음 (.env의 GOOGLE_API_KEY 확인)" if isinstance(e, SystemExit)
-                                 else f"{type(e).__name__}: {e}")
+        if not use_dummy:
+            try:
+                warm_up_models()
+            except Exception as e:
+                st.warning(f"NLI 모델 미리 불러오기 실패({type(e).__name__}) — C 실행 중에 다시 시도합니다.")
+        with st.spinner("A·B·C 동시 번역 중... (C는 검증까지 하므로 가장 오래 걸려요)"):
+            results, errors = run_all_conditions(source, PERSONAS[persona], use_dummy)
         for c, msg in errors.items():
             st.error(f"{CONDITIONS[c]} 실패 — {msg}  (사이드바에서 가짜 결과를 켜면 화면은 확인할 수 있어요)")
         if len(results) == len(CONDITIONS):
