@@ -1,24 +1,42 @@
+"""조건 C(우리 팀 파이프라인)를 평가 문장 전체에 돌려 결과 CSV를 만듭니다.
 
+사용법 (프로젝트 루트): python scripts/run_condition_c.py --user ganghee [--retries 2] [--out results/v2]
+- 7주차 결과(results/week7)는 레거시 검증으로 만든 것이라 덮어쓰지 않도록 기본 출력 폴더가 results/v2입니다.
+- 무료 티어: 문장당 판정 모델(VERIFY_MODEL) 1~3회. 하루 한도가 끝나면 config.VERIFY_FALLBACK_MODEL로 자동 대체되고
+  결과의 judge_model 열에 기록됩니다.
+"""
+import argparse
 import csv
 import json
 import statistics
+import sys
 from collections import Counter
 from pathlib import Path
 
-from src.pipeline import (
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from src.pipeline import (  # noqa: E402
     _load_or_compute_style_profile,
     translate_with_verification,
 )
 
-USER = "ganghee"
-INPUT_PATH = Path("data/measure/team_evaluation.jsonl")
-OUTPUT_DIR = Path("results/week7")
+ap = argparse.ArgumentParser()
+ap.add_argument("--user", default="ganghee")
+ap.add_argument("--retries", type=int, default=2)
+ap.add_argument("--out", default="results/v2")
+ap.add_argument("--input", default="data/measure/team_evaluation.jsonl")
+ARGS = ap.parse_args()
+
+USER = ARGS.user
+INPUT_PATH = ROOT / ARGS.input
+OUTPUT_DIR = ROOT / ARGS.out
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-RESULT_PATH = OUTPUT_DIR / "condition_c_results.csv"
-SUMMARY_PATH = OUTPUT_DIR / "condition_c_summary.csv"
+RESULT_PATH = OUTPUT_DIR / f"condition_c_results_{USER}.csv"
+SUMMARY_PATH = OUTPUT_DIR / f"condition_c_summary_{USER}.csv"
 
-MAX_RETRIES = 2
+MAX_RETRIES = ARGS.retries
 
 
 def load_cases():
@@ -85,16 +103,13 @@ def main():
                 "translation": result["translation"],
                 "verdict": result["verdict"],
                 "meaning_score": result.get("meaning_score"),
-                "meaning_score_status": result.get(
-                    "meaning_score_status"
-                ),
-                "meaning_score_method": result.get(
-                    "meaning_score_method"
-                ),
-                "semantic_nuance_error": result.get(
-                    "semantic_nuance_error"
+                "meaning_score_method": result.get("meaning_score_method"),
+                "issues": "; ".join(
+                    f"{i['severity']}:{i['type']}" for i in result.get("issues", [])
                 ),
                 "attempts": result.get("attempts"),
+                "best_attempt": result.get("best_attempt"),
+                "judge_model": result.get("judge_model"),
                 "error": "",
             }
 
@@ -106,10 +121,11 @@ def main():
                 "translation": "",
                 "verdict": "ERROR",
                 "meaning_score": "",
-                "meaning_score_status": "",
                 "meaning_score_method": "",
-                "semantic_nuance_error": "",
+                "issues": "",
                 "attempts": "",
+                "best_attempt": "",
+                "judge_model": "",
                 "error": f"{type(exc).__name__}: {exc}",
             }
 
@@ -149,9 +165,8 @@ def main():
         "review": verdict_counts["REVIEW"],
         "fail": verdict_counts["FAIL"],
         "error": verdict_counts["ERROR"],
-        "similarity_only": sum(
-            row["meaning_score_method"] == "SIMILARITY_ONLY"
-            for row in rows
+        "retranslated": sum(
+            1 for row in rows if row["attempts"] not in ("", None) and int(row["attempts"]) > 1
         ),
     }
 

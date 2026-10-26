@@ -4,66 +4,15 @@ from collections import Counter
 import nltk
 from nltk.tokenize import word_tokenize
 
-# --- 사전 정의 (cliche_lexicon.py가 없을 경우를 대비한 내장 예시) ---
-# 별도 파일로 관리할 경우 import cliche_lexicon 하시면 됩니다.
-ENGLISH_AI_CLICHES = {
-    # 1. 인위적 담화 표지 및 전환구 (Discourse Markers & Transitions)
-    "transitions": [
-        "furthermore", "moreover", "in addition", "additionally", "notably",
-        "consequently", "subsequently", "it is worth noting that",
-        "it is noteworthy that", "importantly", "in summary", "to summarize",
-        "in conclusion", "all in all", "ultimately", "moving forward"
-    ],
-    
-    # 2. 과도한 강조 및 전형적 수식어 (Hallmark Adjectives & Adverbs)
-    "elevated_modifiers": [
-        "pivotal", "crucial", "vital", "paramount", "essential", "indispensable",
-        "multifaceted", "nuanced", "intricate", "meticulous", "comprehensive",
-        "robust", "dynamic", "vibrant", "seamless", "transformative", "groundbreaking",
-        "profound", "imperative", "ubiquitous", "compelling"
-    ],
-    
-    # 3. AI 특유의 빈출 동사 및 관용적 동사구 (Frequent Verbs & Verb Phrases)
-    "cliche_verbs_and_phrases": [
-        "delve into", "delves into", "delving into",
-        "plays a crucial role", "play a crucial role",
-        "plays a pivotal role", "play a pivotal role",
-        "foster", "fosters", "fostering",
-        "underscore", "underscores", "underscoring",
-        "highlight", "highlights", "highlighting",
-        "shed light on", "sheds light on",
-        "bridge the gap", "bridges the gap",
-        "navigate", "navigates", "navigating",
-        "harness", "harnesses", "harnessing",
-        "unlock", "unlocks", "unlocking",
-        "spearhead", "spearheads", "spearheading",
-        "epitomize", "epitomizes", "epitomizing"
-    ],
-    
-    # 4. 상투적 은유 및 명사구 (Metaphorical Clichés & Tropes)
-    "metaphors_and_tropes": [
-        "testament to", "a testament to",
-        "tapestry", "rich tapestry", "complex tapestry",
-        "beacon", "beacon of",
-        "cornerstone", "cornerstone of",
-        "double-edged sword", "a double-edged sword",
-        "game changer", "a game changer",
-        "paradigm shift",
-        "ever-evolving", "ever-changing",
-        "in the realm of", "in today's world",
-        "in this digital age", "fast-paced world"
-    ]
-}
+from src.cliches import ENGLISH_AI_CLICHES  # 사전은 src/cliches.py 한 곳에서 관리
 
 # 최초 1회 punkt 토크나이저 다운로드
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt', quiet=True)
+# 최신 nltk는 punkt_tab이 필요함(punkt만 확인하면 새 환경에서 LookupError)
+for _res in ("punkt", "punkt_tab"):
     try:
-        nltk.download('punkt_tab', quiet=True)
-    except Exception:
-        pass
+        nltk.data.find(f"tokenizers/{_res}")
+    except LookupError:
+        nltk.download(_res, quiet=True)
 
 
 def tokenize_english(text: str) -> list[str]:

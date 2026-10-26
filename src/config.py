@@ -51,12 +51,23 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 # 에러가 나면 `python scripts/list_models.py`로 지금 쓸 수 있는 모델명을 먼저 확인하세요.
 EMBEDDING_MODEL = "gemini-embedding-001"
 GENERATION_MODEL = "gemini-3.5-flash-lite"  # 팀이 실습 때 무료 티어로 이미 써본 모델
-# 의미 검증(claim 추출·뉘앙스 점검)용 모델. 무료 티어 한도가 빡빡함(분당 5회·하루 20회).
+# 의미 검증 판정 모델. 무료 티어 한도가 빡빡함(분당 5회·하루 20회).
 VERIFY_MODEL = "gemini-3.6-flash"
+# VERIFY_MODEL의 하루 한도가 끝나면 이 모델로 판정(시연이 멈추지 않게). None이면 대체하지 않고 오류.
+VERIFY_FALLBACK_MODEL = GENERATION_MODEL
+# 판정 호출의 생각(추론) 길이. "low"면 지연시간이 크게 줄어듦. 지원하지 않는 모델이면 자동으로 무시됨.
+VERIFY_THINKING_LEVEL = "low"
 
-# 검증 경량화 (verify.py)
-# True: claim 추출(원문·번역문)과 뉘앙스 점검을 Gemini 호출 1번에 묶음 (검증 1회당 3.6-flash 3회 → 1회).
-# False: 예전 방식(호출 3번). 7주차 결과(results/week7)를 같은 조건으로 재현할 때만 False로 두세요.
+# 의미 검증 v2 (src/verify.py) 규칙 기반 안전장치
+# 원문·번역문 임베딩 유사도가 이보다 낮으면 판정과 별개로 major 문제로 올림(판정 모델이 놓친 큰 이탈 대비).
+# 지금까지 정상·오류 번역 모두 0.83~0.95였으므로 꽤 보수적인 값.
+SIMILARITY_GUARD = 0.70
+
+# 재번역 기본 횟수 (최초 번역 + 이 횟수). 앱 데모는 app.py의 DEMO_MAX_RETRIES를 씀.
+DEFAULT_MAX_RETRIES = 2
+
+# [레거시] src/verify_legacy.py(7주차 NLI 검증)용 설정
+# True: claim 추출(원문·번역문)과 뉘앙스 점검을 Gemini 호출 1번에 묶음. False: 7주차와 같은 호출 3번.
 VERIFY_SINGLE_CALL = True
 
 # 검색 기본값

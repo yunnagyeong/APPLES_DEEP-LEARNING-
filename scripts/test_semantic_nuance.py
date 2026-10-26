@@ -8,7 +8,7 @@ sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
-from src.verify import check_semantic_nuance
+from src.verify_legacy import check_semantic_nuance
 
 
 cases = [

@@ -16,38 +16,42 @@ import sys
 from . import config
 from .generate import (
     _ensure_client,
-    _format_examples,
     _low_confidence_notice,
-    _style_profile_to_instructions,
     translate_with_style,
 )
 from .retrieve import retrieve_similar
 from .retry import call_with_retry
 
 
+def _examples_fingerprint(user: str) -> str:
+    import hashlib
+    return hashlib.sha256(config.examples_path(user).read_bytes()).hexdigest()[:16]
+
+
 def _load_or_compute_style_profile(user: str, force_recompute: bool = False) -> dict:
     """캐싱된 스타일 프로필을 불러오거나, 없으면 새로 계산해서 저장합니다.
 
-    force_recompute=True로 호출하면 캐시를 무시하고 해당 user의 examples.jsonl 전체를
-    다시 분석합니다. (팀 데이터가 갱신됐을 때 사용)
+    캐시에 예시 파일의 지문(_examples_hash)을 같이 저장해서, examples.jsonl이 바뀌면 자동으로 다시 계산합니다.
+    force_recompute=True면 무조건 다시 계산합니다.
     """
     cache_path = config.style_profile_cache_path(user)
+    fingerprint = _examples_fingerprint(user)
     if not force_recompute and cache_path.exists():
         with open(cache_path, encoding="utf-8") as f:
-            return json.load(f)
+            cached = json.load(f)
+        if cached.get("_examples_hash") == fingerprint:  # 지문이 없거나 다르면(예전 캐시·예시 변경) 다시 계산
+            cached.pop("_examples_hash", None)
+            return cached
 
-    # 캐시가 없거나 강제 재계산인 경우에만 무거운 연산 수행
     from . import style_features as sf
     from .store import read_examples
 
-    examples = read_examples(user)
-    texts = [ex["text"] for ex in examples]
+    texts = [ex["text"] for ex in read_examples(user)]
     profile = sf.extract_style_profile(texts)
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with open(cache_path, "w", encoding="utf-8") as f:
-        json.dump(profile, f, ensure_ascii=False, indent=2)
-
+        json.dump({**profile, "_examples_hash": fingerprint}, f, ensure_ascii=False, indent=2)
     return profile
 
 
@@ -115,132 +119,98 @@ def generate_translation_batch(
 
     return results
 
-"""5주차: Generation-Verification 연결 + 재번역 트리거 로직.
+"""검증 + 재번역 루프 (v2).
 
-verify.py의 verify_translation()을 호출해서 검증하고, PASS가 아니면
-failure_reasons를 프롬프트에 구체적으로 넣어서 재번역합니다.
+translate_with_style()로 번역 → verify.verify_translation()으로 검증 → 고칠 문제(major·critical)가 있으면
+문제 구절만 고치는 재번역 → 다시 검증. 시도 중 가장 좋은 번역을 돌려줍니다.
 
-설계 결정 (강희님과 확인 필요):
-- verdict가 FAIL일 때만이 아니라 REVIEW일 때도 재번역을 시도합니다.
-  이유: verify.py의 determine_verdict()는 CONTRADICTION만 critical_errors로
-  잡고 FAIL을 주는데, 우리가 4주차에 찾은 가장 심각한 사례(#23 Unsupported
-  Addition)는 CONTRADICTION이 아니라서 FAIL이 아니라 REVIEW로 분류됩니다.
-  FAIL만 재번역하면 Addition류 문제는 그냥 통과되어 버립니다.
+v2에서 바뀐 점 (근거: docs/PIPELINE_V2.md)
+- 재번역은 FAIL·REVIEW일 때만. minor(시제·정도·군더더기 단어)는 PASS로 두고 화면에 참고로만 표시.
+- 재번역 프롬프트는 "처음부터 다시 번역"이 아니라 "지적된 구절만 고치고 나머지 문장은 그대로" (최소 수정).
+  다시 번역하면 이미 맞던 부분에 새 문제가 생기거나 문체가 흔들리기 때문.
+- 마지막 시도가 아니라 가장 좋은 시도(판정 → 점수 순)를 반환. 재번역이 오히려 나빠지는 경우를 막음.
+- 원문 claim은 첫 검증에서 정한 것을 이후 시도에도 그대로 써서 시도끼리 점수를 공정하게 비교.
 """
 
-# 최초 1회 + 이 횟수만큼 추가 재번역 시도 (총 시도 = 1 + max_retries)
-DEFAULT_MAX_RETRIES = 2
+DEFAULT_MAX_RETRIES = config.DEFAULT_MAX_RETRIES
+_VERDICT_RANK = {"PASS": 2, "REVIEW": 1, "FAIL": 0}
 
 
-
-def _format_failure_reasons(failure_reasons: list[dict]) -> str:
-    """Verification 오류를 재번역 모델이 이해할 수 있는 지시문으로 변환."""
+def _format_issues(issues: list[dict]) -> str:
+    """검증 문제를 재번역 모델용 지시로. 판정 모델이 인용한 구절(evidence)을 그대로 보여줌."""
     lines = []
-
-    for reason in failure_reasons:
-        error_type = reason["type"]
-        claim = reason["claim"]
-
-        if error_type == "CONTRADICTION":
-            lines.append(
-                f'- CONTRADICTION: the claim "{claim}" contradicts '
-                f"the meaning of the original text. "
-                f"Correct the translation to match the source."
-            )
-
-        elif error_type == "UNSUPPORTED_ADDITION":
-            lines.append(
-                f'- UNSUPPORTED ADDITION: your translation states "{claim}", '
-                f"but this is not supported by the original text. "
-                f"Remove unsupported explanations, justifications, "
-                f"and additional details."
-            )
-
-        elif error_type == "OMISSION_OR_UNSUPPORTED":
-            lines.append(
-                f'- POSSIBLE OMISSION: the original claim "{claim}" '
-                f"may not be preserved in your translation. "
-                f"Ensure that this information is accurately reflected."
-            )
-
-        elif error_type == "SEMANTIC_NUANCE":
-            nuance_types = reason.get("error_types", [])
-            nuance_label = ", ".join(nuance_types) or "MEANING_SHIFT"
-
-            lines.append(
-                f'- SEMANTIC MEANING ERROR ({nuance_label}): '
-                f"{claim} "
-                f"Revise the translation to preserve the exact "
-                f"meaning of the source, including modality, "
-                f"certainty, tense, negation, and attribution. "
-                f"Do not introduce unsupported information."
-            )
-
+    for i in issues:
+        parts = [f"- [{i['type']}]"]
+        if i.get("claim"):
+            parts.append(f'source claim: "{i["claim"]}"')
+        if i.get("evidence"):
+            parts.append(f'translation span: "{i["evidence"]}"')
+        if i.get("note"):
+            parts.append(f"problem: {i['note']}")
+        lines.append(" | ".join(parts))
     return "\n".join(lines)
 
+
+_FIX_HINTS = {
+    "UNSUPPORTED_ADDITION": "delete the added reason/explanation/fact entirely",
+    "MODALITY_SHIFT": "restore the source's exact degree of certainty (keep may/might/seems if the source hedges)",
+    "ATTRIBUTION_LOST": "restore the subjective framing exactly as in the source (e.g. I think, personally)",
+    "OMISSION": "add the missing content",
+    "SCOPE_CHANGE": "restore the source's exact scope or quantity",
+    "CONDITION_DROPPED": "restore the condition",
+}
 
 
 def _retranslate_with_feedback(
     korean_text: str,
     previous_translation: str,
-    failure_reasons: list[dict],
+    issues: list[dict],
     style_profile: dict,
     examples: list[dict],
     user: str | None = None,
 ) -> str:
-    """이전 번역 + 검증 실패 사유를 프롬프트에 넣어 재생성.
-
-    examples는 translate_with_verification()이 맨 앞에서 한 번 검색한 결과를 그대로 받습니다
-    (재번역마다 같은 문장을 다시 임베딩·검색하지 않기 위해).
-    """
+    """지적된 구절만 고치는 최소 수정 재번역."""
     client = _ensure_client()
-
-    # generate.py에 이미 있는 스타일 지시문 변환 함수 재사용
-    from .generate import HEDGE_PRESERVATION_RULE, _style_profile_to_instructions, numbered_extra_rules
+    from .generate import HEDGE_PRESERVATION_RULE, _style_profile_to_instructions
 
     style_instructions = _style_profile_to_instructions(style_profile, user, source_text=korean_text)
-    issues_text = _format_failure_reasons(failure_reasons)
+    hints = sorted({f"- {t}: {_FIX_HINTS[t]}" for t in (i["type"] for i in issues) if t in _FIX_HINTS})
+    prompt = f"""You translated a Korean text into English in a specific writer's style. An automated meaning check
+found the problems listed below. Revise your translation with the SMALLEST possible edit.
 
-    prompt = f"""You previously translated the Korean text below, but automated verification found issues with your translation.
+Rules:
+1. Change only the spans needed to fix the listed problems. Keep every other sentence and word exactly as it is,
+   so the writer's style is preserved.
+2. Do not add any content that is not in the Korean source; do not drop any content that is.
+3. {HEDGE_PRESERVATION_RULE}
+4. Output only the revised English translation, nothing else.
 
-Original Korean text:
+How to fix each problem type:
+{chr(10).join(hints) if hints else "- make the meaning match the Korean source exactly"}
+
+Writer's style notes (keep them):
+{style_instructions or "- (none)"}
+
+Korean source:
 {korean_text}
 
 Your previous translation:
 {previous_translation}
 
-Issues found by verification:
-{issues_text}
+Problems found:
+{_format_issues(issues)}
 
-Please produce a corrected English translation that:
-1. Fixes every issue listed above
-2. Still preserves the writer's personal style:
-{style_instructions}
-3. Does not introduce any new problems (no fabricated content, no dropped claims, no reversed meaning)
-4. {HEDGE_PRESERVATION_RULE}{numbered_extra_rules(5)}
-
-Reference examples of the writer's Korean style:
-{_format_examples(examples)}
-
-Corrected translation:"""
+Revised translation:"""
 
     response = call_with_retry(
-        lambda: client.models.generate_content(
-            model=config.GENERATION_MODEL, contents=prompt
-        ),
+        lambda: client.models.generate_content(model=config.GENERATION_MODEL, contents=prompt),
         label="retranslation with feedback",
     )
-    return response.text
+    return response.text.strip()
 
 
-def _should_retranslate(verification: dict, policy: str) -> bool:
-    if policy == "all":
-        return True
-    if policy != "actionable":
-        raise ValueError(f"알 수 없는 retry_policy: {policy}")
-    return verification["verdict"] == "FAIL" or bool(
-        (verification.get("semantic_nuance") or {}).get("has_meaning_error")
-    )
+def _attempt_key(v: dict) -> tuple:
+    return (_VERDICT_RANK[v["verdict"]], v["meaning_score"] or 0.0)
 
 
 def translate_with_verification(
@@ -249,111 +219,67 @@ def translate_with_verification(
     user: str,
     type_filter: str | None = None,
     max_retries: int = DEFAULT_MAX_RETRIES,
-    retry_policy: str = "all",
     examples: list[dict] | None = None,
 ) -> dict:
-    """개인화 번역 -> 검증 -> (필요시) 실패 사유 기반 재번역 까지 처리하는 통합 함수.
+    """개인화 번역 → 검증 → (FAIL·REVIEW면) 최소 수정 재번역. 가장 좋은 시도를 반환.
 
-    retry_policy:
-      "all"        (기본, 예전 동작) PASS가 아니면 재번역
-      "actionable" FAIL이거나 Gemini 뉘앙스 점검도 오류를 찾았을 때만 재번역.
-                   NLI만 REVIEW를 주고 Gemini는 문제없다고 본 경우(예: #26 "데이터가 늘어나면서" 오탐)는
-                   재번역해도 검증기 판정이 바뀌지 않아 호출만 낭비되므로 건너뜀. 데모(app.py)용.
-    examples: 미리 검색해 둔 RAG 예시. 주면 검색을 건너뜀(app.py가 B·C 조건에 같은 검색 결과를 씀).
-
-    호출 수 — 경량화 후 (config.VERIFY_SINGLE_CALL=True, max_retries=2 최악, 503/429 재시도 제외):
-      - 번역·재번역 생성 3회 + 검증용 Gemini(3.6-flash) 3회(검증 1회당 1회) + 임베딩 4회
-        (RAG 1 + 첫 검증에서 원문·번역문 묶음 1 + 재검증마다 번역문 1) → 합계 10회
-      - 재번역 없음: 4회(3.6-flash 1회), 재번역 1회: 7회. scripts/measure_pipeline.py --mode offline
-    아래는 경량화 전 예전 코드 기준 기록입니다(VERIFY_SINGLE_CALL=False로 두면 검증 1회당 3.6-flash 3회).
-    호출 수 (max_retries=2, 최악의 경우 = 재번역 2회까지 모두 사용. 503/429 재시도는 제외):
-      - 번역·재번역 생성(Gemini) 3회
-      - claim 추출(Gemini) 6회: 검증 1회당 원문·번역문 각 1회 × 검증 3회
-      - 임베딩 7회: RAG 검색 1회(맨 앞에서 한 번만) + 의미 유사도 6회(검증 1회당 2회)
-      → API 호출 합계 16회 (검색을 재번역마다 다시 하던 시절에는 18회였음)
-      - NLI는 로컬 추론이라 API 호출에 포함하지 않음
-    재번역이 없으면(첫 검증에서 PASS) 6회, 재번역 1회면 11회입니다.
-    scripts/measure_pipeline.py --mode offline 으로 직접 확인할 수 있습니다.
-
-    무료 티어 주의: claim 추출 모델(verify.py의 gemini-3.6-flash)은 분당 5회·하루 20회
-    한도가 있어 검증 1회(claim 2회)가 하루 한도의 10%를 씁니다. max_retries를 너무 높이지
-    마세요. 지연시간은 검증 쪽 claim 추출 LLM이 대부분을 차지합니다(소표본 실측, 각 경우
-    1~2건: 재번역 없음 약 7~15초, 재번역 1회 약 30초, 2회 약 55~65초. 생성은 1회당 약 1초.
-    일부는 API 재시도 대기가 섞여 있음. scripts/measure_pipeline.py --mode live).
+    호출 수 (재번역 없음 / 1회 / 2회): 번역 생성 1/2/3 + 판정(VERIFY_MODEL) 1/2/3 + 임베딩 2/3/4
+    (검색 1 + 유사도: 첫 검증 원문·번역문 묶음 1, 재검증마다 번역문 1). 판정과 유사도 임베딩은 동시에 보냄.
+    examples를 주면 검색 임베딩 1회가 빠짐(app.py가 B·C에 같은 검색 결과를 씀).
 
     Returns:
-        {
-            "translation": str,               # 최종 번역 결과
-            "verdict": str,                    # 최종 verdict (PASS/REVIEW/FAIL)
-            "attempts": int,                   # 실제 시도 횟수
-            "verification_history": list[dict],  # 각 시도의 verify_translation() 결과
-            "notice": str,                     # 검색 신뢰도 낮음 안내문 (없으면 ""). 번역문에는 붙이지 않음
-        }
+        translation        가장 좋은 시도의 번역
+        verdict            그 시도의 판정 PASS/REVIEW/FAIL
+        meaning_score      그 시도의 Meaning Score (0~100)
+        meaning_score_method, meaning_components
+        issues             그 시도에서 찾은 문제 전체 (minor 포함, 화면 표시용)
+        attempts           실제 시도 횟수
+        best_attempt       반환한 번역이 몇 번째 시도인지 (1부터)
+        translations       시도별 번역
+        verification_history  시도별 verify_translation() 결과
+        judge_model        판정에 쓴 모델 (하루 한도 소진 시 대체 모델일 수 있음)
+        notice             검색 신뢰도 낮음 안내문 (없으면 "")
     """
-    from .verify import verify_translation  # NLI 모델 로딩이 무거워서 실제 호출 시점에 import
+    from .verify import verify_translation
 
-    # 검색은 여기서 한 번만 하고, 첫 번역과 재번역에 같은 결과를 넘깁니다.
     if examples is None:
         examples = retrieve_similar(korean_text, user, k=config.DEFAULT_TOP_K, type_filter=type_filter)
-    notice = _low_confidence_notice(examples)  # 번역문과 분리해서 결과 dict로만 전달
+    notice = _low_confidence_notice(examples)
 
     translation = translate_with_style(
         korean_text, style_profile, user, type_filter=type_filter, examples=examples
-    )
-    history = []
-    source_cache: dict = {}  # 원문 임베딩·원문 claim을 시도 간 재사용
+    ).strip()
+    history: list[dict] = []
+    translations: list[str] = []
+    source_cache: dict = {}
 
     total_attempts = max_retries + 1
     for attempt in range(1, total_attempts + 1):
         verification = verify_translation(korean_text, translation, source_cache=source_cache)
         history.append(verification)
-        verdict = verification["verdict"]
-        print(f"[verify] 시도 {attempt}/{total_attempts}: verdict={verdict}")
+        translations.append(translation)
+        print(f"[verify] 시도 {attempt}/{total_attempts}: verdict={verification['verdict']} "
+              f"score={verification['meaning_score']}")
 
-        if verdict == "PASS":
+        if verification["verdict"] == "PASS" or attempt == total_attempts:
             break
-
-        if attempt == total_attempts:
-            print(f"[verify] 최대 시도({total_attempts}회) 도달 - 마지막 결과를 그대로 반환")
-            break
-
-        if not _should_retranslate(verification, retry_policy):
-            print("[verify] NLI 단독 REVIEW(Gemini는 오류 없음) - 재번역해도 판정이 안 바뀌어 건너뜀")
-            break
-
-        # FAIL, REVIEW 둘 다 재번역 대상. failure_reasons(전체) 기준으로 피드백 구성.
         translation = _retranslate_with_feedback(
-            korean_text,
-            translation,
-            verification["failure_reasons"],
-            style_profile,
-            examples,
-            user,
+            korean_text, translation, verification["failure_reasons"], style_profile, examples, user,
         )
 
-    
-    # 마지막 검증 결과를 기준으로 Meaning Score 계산
-    from .meaning_score import calculate_meaning_score
-
-    final_verification = history[-1]
-    meaning_result = calculate_meaning_score(final_verification)
-
+    best = max(range(len(history)), key=lambda i: (_attempt_key(history[i]), -i))  # 동점이면 앞 시도(원래 문체에 가까움)
+    v = history[best]
     return {
-        "translation": translation,
-        "verdict": final_verification["verdict"],
+        "translation": translations[best],
+        "verdict": v["verdict"],
+        "meaning_score": v["meaning_score"],
+        "meaning_score_method": v["score_method"],
+        "meaning_components": v["meaning_components"],
+        "issues": v["issues"],
         "attempts": len(history),
+        "best_attempt": best + 1,
+        "translations": translations,
         "verification_history": history,
+        "judge_model": v["judge_model"],
         "notice": notice,
-
-        # Meaning Score
-        "meaning_score": meaning_result["meaning_score"],
-        "meaning_score_method": meaning_result["score_method"],
-        "meaning_score_status": meaning_result["status"],
-        "meaning_components": {
-            "semantic_similarity": meaning_result["semantic_similarity"],
-            "claim_coverage": meaning_result["claim_coverage"],
-            "translation_support_rate": meaning_result["translation_support_rate"],
-            "contradiction_rate": meaning_result["contradiction_rate"],
-        },
-        "semantic_nuance_error": meaning_result["semantic_nuance_error"],
     }

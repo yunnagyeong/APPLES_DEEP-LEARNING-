@@ -1,4 +1,4 @@
-from src.verify import extract_claims, nli_check
+from src.verify_legacy import extract_claims, nli_check
 
 
 source_text = """

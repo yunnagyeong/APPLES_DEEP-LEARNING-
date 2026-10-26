@@ -4,9 +4,9 @@ src/는 건드리지 않고, 실행할 때만 함수를 감싸서(monkeypatch) �
 
 사용법 (프로젝트 루트에서):
   python scripts/measure_pipeline.py --mode offline
-      API·NLI 모델 없이 가짜 함수로 호출 횟수만 센다 (재번역 0/1/2회 시나리오).
+      API 없이 가짜 함수로 호출 횟수만 센다 (재번역 0/1/2회 시나리오).
   python scripts/measure_pipeline.py --mode live --tag before7 [--sample 8] [--ids 1,5,9]
-      실제 API·NLI로 error_cases.csv 케이스의 구간별 시간을 잰다 (.env의 API 키 필요).
+      실제 API로 error_cases.csv 케이스의 구간별 시간을 잰다 (.env의 API 키 필요).
       결과는 data/measure/latency_<tag>_<시각>.csv 로 저장된다.
       7번 적용 전후를 같은 --ids/--sample로 돌려 비교할 것 (태그만 바꿈).
 """
@@ -18,7 +18,6 @@ import math
 import os
 import sys
 import time
-import types
 import zlib
 from collections import defaultdict
 from datetime import datetime
@@ -118,48 +117,21 @@ def install_hooks():
     retrieve.embed_text = timed("rag_embed", retrieve.embed_text)
     verify.embed_text = timed("sim_embed", verify.embed_text)
     verify.embed_texts = timed("sim_embed", verify.embed_texts)
-    verify.extract_claims = timed("claims", verify.extract_claims)
-    verify.check_semantic_nuance = timed("claims", verify.check_semantic_nuance)
-    verify.analyze_meaning = timed("claims", verify.analyze_meaning)  # 묶음 호출(claim+뉘앙스 1회)
-    verify.nli_check_batch = timed("nli", verify.nli_check_batch)
-    verify.call_with_retry = _wrap_call_with_retry(verify.call_with_retry)
+    verify.judge = timed("claims", verify.judge)  # 의미 판정(VERIFY_MODEL) 호출
     verify.verify_translation = timed("verify", verify.verify_translation)
 
 
 # --------------------------------------------------------------------------- 오프라인
-def _install_ml_stubs():
-    """torch/transformers를 가짜로 대체해 verify.py를 모델 로딩 없이 import한다."""
-    torch = types.ModuleType("torch")
-
-    class _NoGrad:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    torch.no_grad = lambda: _NoGrad()
-    transformers = types.ModuleType("transformers")
-
-    class _Dummy:
-        @classmethod
-        def from_pretrained(cls, *a, **kw):
-            return cls()
-
-    transformers.AutoTokenizer = _Dummy
-    transformers.AutoModelForSequenceClassification = _Dummy
-    sys.modules["torch"] = torch
-    sys.modules["transformers"] = transformers
-
-
 def _install_offline_fakes(dim, fake_state):
     import numpy as np
 
     from src import generate, pipeline, retrieve, verify
 
-    def fake_embed(text, task_type="RETRIEVAL_DOCUMENT"):
+    base = np.random.default_rng(0).standard_normal(dim)
+
+    def fake_embed(text, task_type="RETRIEVAL_DOCUMENT"):  # 서로 비슷한 벡터(유사도 하한에 안 걸리게)
         rng = np.random.default_rng(zlib.crc32(text.encode("utf-8")))
-        return rng.standard_normal(dim).tolist()
+        return (base + 0.3 * rng.standard_normal(dim)).tolist()
 
     retrieve.embed_text = fake_embed
     verify.embed_text = fake_embed
@@ -173,18 +145,17 @@ def _install_offline_fakes(dim, fake_state):
     fake_client = SimpleNamespace(models=_Models())
     generate._ensure_client = lambda: fake_client
     pipeline._ensure_client = lambda: fake_client
-    no_err = {"has_meaning_error": False, "error_types": [], "explanation": ""}
-    verify.extract_claims = lambda text, language="ko": ["claim"]
-    verify.check_semantic_nuance = lambda s, t: dict(no_err)
-    verify.analyze_meaning = lambda s, t, source_claims=None: {
-        "source_claims": source_claims or ["claim"], "translation_claims": ["claim"], "semantic_nuance": dict(no_err)}
-    verify.nli_check_batch = lambda pairs: [
-        {"label": fake_state["label"], "confidence": 1.0, "scores": {}} for _ in pairs]
+    def fake_judge(source, translation, fixed_claims=None):
+        label = "CONTRADICTION" if fake_state["label"] == "contradiction" else "OK"
+        claims = fixed_claims or ["claim"]
+        return {"source_claims": [{"claim": c, "evidence": "x", "label": label, "note": ""} for c in claims],
+                "additions": []}, "fake-judge"
+
+    verify.judge = fake_judge
 
 
 def run_offline(user):
     os.environ.setdefault("GOOGLE_API_KEY", "offline-dummy")
-    _install_ml_stubs()
     from src.store import load_indexed_examples
 
     _, vectors = load_indexed_examples(user)
@@ -225,14 +196,13 @@ def run_offline(user):
     verify.verify_translation = base_verify
 
     head = ["재번역", "시도", "verdict", "검색", "디스크로드", "검색임베딩", "번역생성",
-            "claim추출", "유사도임베딩", "NLI(로컬)", "API합계", "프롬프트crc"]
+            "의미판정", "유사도임베딩", "(미사용)", "API합계", "프롬프트crc"]
     print("\n=== 호출 수 (max_retries=2, 가짜 함수로 센 값) ===")
     print("  ".join(f"{h:>8}" for h in head))
     for r in rows:
         print("  ".join(f"{str(v):>8}" for v in r))
-    print("\n기대값 — 7번 전 API합계 6/12/18 · 7번 후 6/11/16 (뉘앙스 점검 추가 전 기준)")
-    print("        경량화 후(VERIFY_SINGLE_CALL=True) API합계 4/7/10, claim추출(=3.6-flash) 1/2/3")
-    print("API합계 = 번역생성 + claim추출 + 검색임베딩 + 유사도임베딩 (NLI는 로컬이라 제외)")
+    print("\n기대값 — v2: API합계 4/7/10, 의미판정(VERIFY_MODEL) 1/2/3  (레거시 7주차: 7/13/19, 3.6-flash 3/6/9)")
+    print("API합계 = 번역생성 + 의미판정 + 검색임베딩 + 유사도임베딩")
     print("프롬프트crc = 생성 모델에 보낸 프롬프트 전체의 해시. 7번 전후로 같으면 번역 입력이 동일")
 
 

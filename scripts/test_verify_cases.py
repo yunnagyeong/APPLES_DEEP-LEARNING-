@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env")
 
-from src.verify import verify_translation
+from src.verify_legacy import verify_translation
 
 
 # 우선 2개 사례만 테스트

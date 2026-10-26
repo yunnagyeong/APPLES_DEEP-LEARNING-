@@ -24,17 +24,14 @@ CONDITIONS = {
 
 # ==================================================
 # 번역기 연결 (src/ 파이프라인)
-#   A: src.baselines.translate_zero_shot
-#   B: src.baselines.translate_in_context
-#   C: src.pipeline.translate_with_verification  (Style Profile + RAG + NLI 검증·재번역)
+#   A: src.baselines.translate_zero_shot     (일반 번역)
+#   B: src.baselines.translate_in_context    (RAG 예시만)
+#   C: src.pipeline.translate_with_verification
+#      (Style Profile + RAG + 보존 규칙 → 의미 검증 v2 → 문제 구절만 고치는 재번역, 가장 좋은 시도 반환)
 # 사이드바에서 "데모용 가짜 결과"를 켜면 API 호출 없이 화면만 확인할 수 있습니다.
 #
-# 속도 관련 (데모용 설정):
-#   - A·B·C를 동시에 실행합니다(스레드). 전체 대기시간 = 가장 느린 C 하나.
-#   - RAG 검색은 한 번만 하고 B·C가 같은 예시를 씁니다.
-#   - NLI 모델·Kiwi는 앱이 처음 뜰 때 한 번만 로딩합니다(st.cache_resource).
-#   - C는 재번역 최대 DEMO_MAX_RETRIES회, 고칠 수 있는 오류일 때만 재번역(retry_policy="actionable").
-#     실험 재현(7주차)은 scripts/run_condition_c.py의 기본값(재번역 2회, "all")을 쓰세요.
+# 속도: A·B·C를 동시에 실행(전체 대기 = 가장 느린 C), 검색은 한 번만 해서 B·C가 공유,
+#       Kiwi·스타일 프로필은 처음 한 번만 준비. C 재번역은 최대 DEMO_MAX_RETRIES회.
 # ==================================================
 DEMO_MAX_RETRIES = 1
 
@@ -45,34 +42,30 @@ def load_style_profile(user):
     return _load_or_compute_style_profile(user)
 
 
-@st.cache_resource(show_spinner="검증 모델(NLI)·형태소 분석기 불러오는 중... (처음 한 번만)")
-def warm_up_models():
+@st.cache_resource(show_spinner="형태소 분석기·스타일 프로필 준비 중... (처음 한 번만)")
+def warm_up(user):
     from src import style_features as sf
-    from src.verify import load_nli_model
-    load_nli_model()
     sf._get_kiwi().tokenize("준비")
+    load_style_profile(user)
     return True
 
 
 def translate(korean_text, user, condition, examples=None):
-    """번역 결과 dict: {"text": 영어 번역, "info": 화면에 덧붙일 짧은 설명}"""
+    """번역 결과 dict: {"text": 영어 번역, "info": 짧은 설명, "detail": C의 검증 결과(없으면 None)}"""
     if condition == "A":
         from src.baselines import translate_zero_shot
-        return {"text": translate_zero_shot(korean_text), "info": ""}
+        return {"text": translate_zero_shot(korean_text), "info": "", "detail": None}
     if condition == "B":
         from src.baselines import translate_in_context
-        return {"text": translate_in_context(korean_text, user, examples=examples), "info": ""}
+        return {"text": translate_in_context(korean_text, user, examples=examples), "info": "", "detail": None}
     from src.pipeline import translate_with_verification
     result = translate_with_verification(
-        korean_text, load_style_profile(user), user,
-        max_retries=DEMO_MAX_RETRIES, retry_policy="actionable", examples=examples,
+        korean_text, load_style_profile(user), user, max_retries=DEMO_MAX_RETRIES, examples=examples,
     )
-    info = f"검증 {result['verdict']} · 시도 {result['attempts']}회"
-    if result.get("meaning_score") is not None:
-        info += f" · Meaning {result['meaning_score']:.0f}"
-    if result.get("notice"):
-        info += f" · {result['notice'].strip()}"
-    return {"text": result["translation"], "info": info}
+    info = f"검증 {result['verdict']} · Meaning {result['meaning_score']:.0f} · 시도 {result['attempts']}회"
+    if result["attempts"] > 1:
+        info += f"(채택: {result['best_attempt']}번째)"
+    return {"text": result["translation"], "info": info, "detail": result}
 
 
 def run_all_conditions(source, user, use_dummy):
@@ -119,31 +112,10 @@ DUMMY_OUTPUTS = {
 
 
 # ==================================================
-# AI 클리셰 사전
+# AI 클리셰 사전 (팀 공용: src/cliches.py, evaluate_metrics.py와 같은 사전)
 # ==================================================
-ENGLISH_AI_CLICHES = {
-    "transitions": [
-        "furthermore", "moreover", "in addition", "additionally", "notably",
-        "consequently", "subsequently", "it is worth noting that",
-        "it is noteworthy that", "importantly", "in summary", "to summarize",
-        "in conclusion", "all in all", "ultimately", "moving forward",
-    ],
-    "hedging_and_boosters": [
-        "plays a crucial role", "play a crucial role", "vital to consider",
-        "delve into", "delves into", "delving into", "testament to",
-        "foster", "fosters", "fostering", "pivotal", "beacon",
-    ],
-    "elevated_modifiers": [
-        "crucial", "vital", "paramount", "essential", "indispensable",
-        "multifaceted", "nuanced", "intricate", "meticulous", "comprehensive",
-        "robust", "dynamic", "vibrant", "seamless", "transformative",
-        "groundbreaking",
-    ],
-}
-try:  # 팀 공용 사전(evaluate_metrics.py)이 있으면 그것을 사용해 평가 스크립트와 기준을 맞춤
-    from evaluate_metrics import ENGLISH_AI_CLICHES  # noqa: F811
-except Exception:
-    pass
+from src.cliches import ENGLISH_AI_CLICHES  # noqa: E402
+
 ALL_AI_CLICHES = sorted({p for ps in ENGLISH_AI_CLICHES.values() for p in ps},
                         key=len, reverse=True)   # 긴 표현부터 매칭
 # 단어 경계(\b)로 매칭: "vital"이 "revitalize" 안에서 잡히는 오류 방지
@@ -199,6 +171,42 @@ def load_corpus(persona):
 
 
 # ==================================================
+# C 검증 결과 패널
+# ==================================================
+SEVERITY_KO = {"critical": "심각", "major": "주의", "minor": "참고"}
+VERDICT_KO = {"PASS": "통과", "REVIEW": "검토 필요", "FAIL": "의미 오류"}
+
+
+def render_verification(detail):
+    if not detail:
+        return
+    verdict = detail["verdict"]
+    head = f"C 의미 검증: {VERDICT_KO[verdict]} ({verdict}) · Meaning Score {detail['meaning_score']:.0f}/100"
+    with st.expander(head, expanded=verdict != "PASS"):
+        comp = detail["meaning_components"]
+        sim = comp.get("semantic_similarity")
+        st.caption(
+            f"원문 claim {comp['source_claim_count']}개 · 보존도 {comp['fidelity']:.2f} · "
+            f"추가 내용 감점 ×{comp['addition_factor']:.2f} · 규칙 검사 ×{comp['rule_factor']:.2f}"
+            + (f" · 임베딩 유사도 {sim:.2f}" if sim is not None else "")
+            + f" · 판정 모델 {detail['judge_model']}"
+        )
+        issues = detail["issues"]
+        if issues:
+            for i in issues:
+                where = f" — “{i['evidence']}”" if i.get("evidence") else ""
+                st.markdown(f"- **[{SEVERITY_KO[i['severity']]}] {i['label_ko']}**{where}  \n  {i.get('note', '')}")
+        else:
+            st.markdown("찾은 의미 문제 없음.")
+        history = detail["verification_history"]
+        if len(history) > 1:
+            st.markdown("**시도별 결과**")
+            for n, (t, v) in enumerate(zip(detail["translations"], history), 1):
+                mark = " ← 채택" if n == detail["best_attempt"] else ""
+                st.markdown(f"{n}. {v['verdict']} · {v['meaning_score']:.0f}점{mark}  \n  {t}")
+
+
+# ==================================================
 # 화면
 # ==================================================
 def main():
@@ -218,12 +226,12 @@ def main():
 
     source = st.text_area("한국어 원문", value=DUMMY_SOURCE, height=120)
 
-    if st.button("번역 실행 및 지표 분석", type="primary", use_container_width=True):
+    if st.button("번역 실행 및 지표 분석", type="primary", width="stretch"):
         if not use_dummy:
             try:
-                warm_up_models()
-            except Exception as e:
-                st.warning(f"NLI 모델 미리 불러오기 실패({type(e).__name__}) — C 실행 중에 다시 시도합니다.")
+                warm_up(PERSONAS[persona])
+            except BaseException as e:
+                st.warning(f"준비 단계 실패({type(e).__name__}: {e}) — 번역을 그대로 시도합니다.")
         with st.spinner("A·B·C 동시 번역 중... (C는 검증까지 하므로 가장 오래 걸려요)"):
             results, errors = run_all_conditions(source, PERSONAS[persona], use_dummy)
         for c, msg in errors.items():
@@ -231,6 +239,7 @@ def main():
         if len(results) == len(CONDITIONS):
             st.session_state["outputs"] = {c: r["text"] for c, r in results.items()}
             st.session_state["infos"] = {c: r["info"] for c, r in results.items()}
+            st.session_state["detail_c"] = results["C"].get("detail")
             st.session_state["persona"] = persona
 
     outputs = st.session_state.get("outputs")
@@ -248,6 +257,8 @@ def main():
             st.text_area(label, outputs[c], height=180, disabled=True,
                          label_visibility="collapsed")
             st.caption(st.session_state.get("infos", {}).get(c, ""))
+
+    render_verification(st.session_state.get("detail_c"))
 
     # ---------------- 지표 표
     ref_len = avg_sentence_length(corpus) if corpus else 0.0
@@ -293,17 +304,17 @@ def main():
                          color_discrete_map=colors, text_auto=".1f",
                          title="AI 클리셰 비율 (낮을수록 좋음)")
             fig.update_layout(showlegend=False, xaxis_title="")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         with g2:
             if corpus:
                 fig = px.bar(df, x="조건", y="평균 문장 길이", color="조건",
                              color_discrete_map=colors, text_auto=".1f",
                              title=f"평균 문장 길이 ({persona} 실제 글에 가까울수록 좋음)")
                 fig.update_layout(showlegend=False, xaxis_title="")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
     with tab2:
-        st.dataframe(df.set_index("조건").round(3), use_container_width=True)
+        st.dataframe(df.set_index("조건").round(3), width="stretch")
 
     with tab3:
         for c, label in CONDITIONS.items():

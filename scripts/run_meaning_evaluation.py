@@ -1,3 +1,4 @@
+"""[레거시] 7주차 NLI 검증(src/verify_legacy.py)으로 error_cases.csv를 평가. 새 검증은 scripts/eval_verifier.py."""
 
 import csv
 import json
@@ -12,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
-from src.verify import verify_translation
+from src.verify_legacy import verify_translation
 from src.meaning_score import calculate_meaning_score
 
 

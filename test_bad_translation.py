@@ -1,4 +1,4 @@
-from src.verify import verify_translation
+from src.verify_legacy import verify_translation
 
 
 korean_text = """

@@ -1,473 +1,320 @@
-"""의미 보존 검증 (Embedding 유사도 + Claim 단위 양방향 NLI + Gemini 뉘앙스 점검).
+"""의미 보존 검증 v2 — claim 정렬 판정 + 규칙 기반 안전장치.
 
-경량화 (config.VERIFY_SINGLE_CALL = True, 기본값):
-- 원문 claim 추출 · 번역문 claim 추출 · 뉘앙스 점검을 Gemini 호출 1번(JSON 응답)으로 묶습니다.
-  검증 1회당 3.6-flash 호출 3회 → 1회. 이 모델은 무료 티어 한도(분당 5회·하루 20회)가 빡빡해서
-  호출 수가 곧 지연시간(429 대기)과 하루 데모 가능 횟수를 정합니다.
-- 재번역 루프에서는 원문 쪽 결과(원문 임베딩·원문 claim)를 source_cache에 담아 재사용합니다.
-  원문은 시도마다 같으므로 다시 계산할 이유가 없고, 시도 간 원문 claim이 같아 비교도 공정해집니다.
-- 원문·번역문 임베딩은 한 번의 API 호출로 묶고, Gemini 분석 호출과 동시에(스레드) 보냅니다.
-- NLI는 모든 (전제, 가설) 쌍을 한 번의 배치로 추론합니다. 모델은 처음 쓸 때 한 번만 로딩합니다.
-config.VERIFY_SINGLE_CALL = False면 예전처럼 extract_claims ×2 + check_semantic_nuance로 동작합니다
-(7주차 결과 재현용). 판정 규칙(build_failure_reasons / determine_verdict)은 두 방식이 같습니다.
+왜 바꿨나 (자세한 근거: docs/PIPELINE_V2.md)
+- 7주차 레거시 검증(src/verify_legacy.py)은 claim 추출 → 다국어 NLI(mDeBERTa) → Gemini 뉘앙스 점검이었다.
+  사람 라벨 32건(error_cases.csv)에서 NLI는 오류 10건 중 7건을 잡았는데, 그 7건은 모두 Gemini 뉘앙스
+  점검도 잡았다(NLI만 잡은 오류 0건). 반대로 NLI는 정상 번역 #26을 잘못 걸렀고, 양태("수 있다→causes")·
+  정도("크지 않다→negligible")·시제 변화는 entailment로 통과시켰다. 원문(한국어)↔번역문(영어) 교차 언어
+  NLI라 구조적으로 약한 부분이다. 그러면서 torch·transformers(수 GB)와 모델 다운로드가 필요했다.
+- 그래서 판정은 Gemini 호출 1번으로 하되, "AI가 AI를 평가하는" 주관성을 줄이도록 설계했다.
+  ① 판정 모델은 점수나 심각도를 매기지 않는다. 원문 claim마다 번역문의 대응 구절(evidence)을 인용하고,
+     정해진 오류 유형 중 하나를 고르기만 한다(분류 문제).
+  ② 유형 → 심각도 → 판정(verdict)·점수는 이 파일의 고정 규칙(코드)이 정한다.
+  ③ 판정 모델과 무관한 규칙 검사 두 가지를 덧붙인다: 숫자 일치 검사, 임베딩 유사도 하한.
+
+반환 dict (pipeline·app·meaning_score가 사용)
+  verdict            PASS | REVIEW | FAIL
+  meaning_score      0~100 (src/meaning_score.py)
+  source_claims      [{claim, evidence, label, severity, note}]
+  additions          [{text, label, severity, note}]
+  issues             OK가 아닌 모든 항목 [{type, severity, origin, claim, evidence, note}]
+  failure_reasons    issues 중 major·critical (재번역 피드백에 사용)
+  critical_errors    issues 중 critical
+  semantic_similarity, judge_model
 """
 
-import json
-import threading
+from __future__ import annotations
+
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-from google import genai
-from google.genai import types
 
-from . import config
+from . import config, llm
 from .embeddings import embed_text, embed_texts
-from .retry import call_with_retry
 
-NLI_MODEL_NAME = (
-    "MoritzLaurer/"
-    "mDeBERTa-v3-base-xnli-multilingual-nli-2mil7"
-)
+# ---------------------------------------------------------------- 오류 유형과 심각도 (고정 규칙)
+# critical: 의미가 뒤집히거나 없는 사실·근거가 생김 → FAIL
+# major   : 확신도·주관성·범위·조건이 바뀌거나 내용이 빠짐 → REVIEW (재번역 대상)
+# minor   : 시제·정도·군더더기 단어 → PASS (참고 표시만, 재번역 안 함)
+SEVERITY = {
+    "OK": "none",
+    "TENSE_SHIFT": "minor",
+    "INTENSITY_SHIFT": "minor",
+    "MINOR_ADDITION": "minor",
+    "MODALITY_SHIFT": "major",
+    "ATTRIBUTION_LOST": "major",
+    "SCOPE_CHANGE": "major",
+    "CONDITION_DROPPED": "major",
+    "OMISSION": "major",
+    "NEGATION_FLIP": "critical",
+    "NUMBER_CHANGE": "critical",
+    "ENTITY_CHANGE": "critical",
+    "COMPARISON_REVERSED": "critical",
+    "CAUSAL_CHANGE": "critical",
+    "CONTRADICTION": "critical",
+    "UNSUPPORTED_ADDITION": "critical",
+    # 규칙 검사(판정 모델과 별개)
+    "NUMBER_CHECK": "major",
+    "LOW_SIMILARITY": "major",
+    "UNKNOWN_LABEL": "major",
+}
+CLAIM_LABELS = [k for k in SEVERITY if k not in ("MINOR_ADDITION", "UNSUPPORTED_ADDITION",
+                                                  "NUMBER_CHECK", "LOW_SIMILARITY", "UNKNOWN_LABEL")]
+ADDITION_LABELS = ["MINOR_ADDITION", "UNSUPPORTED_ADDITION"]
+SEVERITY_RANK = {"none": 0, "minor": 1, "major": 2, "critical": 3}
 
-_client = None
-_nli = None  # (tokenizer, model)
-_nli_lock = threading.Lock()
-
-
-def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=config.GOOGLE_API_KEY or None)
-    return _client
-
-
-def load_nli_model():
-    """NLI 모델을 (처음 한 번만) 로딩해 (tokenizer, model)을 반환. app.py에서 미리 불러 둘 때도 사용."""
-    global _nli
-    with _nli_lock:
-        if _nli is None:
-            import torch  # noqa: F401  (무거운 import를 실제 사용 시점으로 미룸)
-            from transformers import AutoModelForSequenceClassification, AutoTokenizer
-
-            tok = AutoTokenizer.from_pretrained(NLI_MODEL_NAME)
-            model = AutoModelForSequenceClassification.from_pretrained(NLI_MODEL_NAME)
-            model.eval()
-            _nli = (tok, model)
-    return _nli
-
-
-def _parse_json(raw: str) -> dict:
-    raw = raw.strip()
-    if raw.startswith("```json"):
-        raw = raw[7:]
-    if raw.startswith("```"):
-        raw = raw[3:]
-    if raw.endswith("```"):
-        raw = raw[:-3]
-    return json.loads(raw.strip())
+ISSUE_KO = {
+    "TENSE_SHIFT": "시제 변경", "INTENSITY_SHIFT": "정도 표현 변화", "MINOR_ADDITION": "사소한 단어 추가",
+    "MODALITY_SHIFT": "확신도·가능성 변화", "ATTRIBUTION_LOST": "주관적 표현(생각한다 등) 변화",
+    "SCOPE_CHANGE": "범위 변화", "CONDITION_DROPPED": "조건 누락·변경", "OMISSION": "내용 누락",
+    "NEGATION_FLIP": "부정 반전", "NUMBER_CHANGE": "숫자 변경", "ENTITY_CHANGE": "고유명사 변경",
+    "COMPARISON_REVERSED": "비교 방향 반전", "CAUSAL_CHANGE": "인과관계 변경", "CONTRADICTION": "의미 반전",
+    "UNSUPPORTED_ADDITION": "원문에 없는 내용 추가", "NUMBER_CHECK": "숫자 불일치(규칙 검사)",
+    "LOW_SIMILARITY": "전체 의미 유사도 낮음(규칙 검사)", "UNKNOWN_LABEL": "판정 불명확",
+}
 
 
-def _generate_json(prompt: str, label: str) -> dict:
-    """VERIFY_MODEL을 JSON 모드로 호출하고 파싱까지 한 결과. 파싱 실패도 재시도 대상에 포함."""
-    def _once():
-        response = _get_client().models.generate_content(
-            model=config.VERIFY_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
-        )
-        return _parse_json(response.text)
+# ---------------------------------------------------------------- 판정 프롬프트
+_JUDGE_PROMPT = """You are a meticulous bilingual Korean-to-English translation verifier.
+Your ONLY job is meaning fidelity. The translation was deliberately rewritten in a specific person's
+writing style, so differences in wording, register, sentence rhythm and word choice are EXPECTED and are NOT errors.
 
-    return call_with_retry(_once, label=label)
+STEP 1 - Source claims.
+{claim_step}
 
+STEP 2 - Align each source claim to the translation.
+Quote the exact span of the translation that expresses it as "evidence" ("" if absent), then choose ONE label:
+- OK: same meaning (paraphrase, synonym, register or style change is fine)
+- TENSE_SHIFT: only the time reference changed (past/present/future)
+- INTENSITY_SHIFT: degree slightly stronger/weaker, claim otherwise the same (e.g. "not large" -> "negligible")
+- MODALITY_SHIFT: certainty or possibility changed (e.g. "may/might/seems/could" <-> "is/will/does/must/inevitably"),
+  including a hedge removed or added
+- ATTRIBUTION_LOST: subjective framing ("I think", "in my opinion", "personally", "it seems to me") removed,
+  turned into objective fact, or added where the source had none
+- SCOPE_CHANGE: quantity or scope changed (some -> all, often -> always, adding/removing "only")
+- CONDITION_DROPPED: a condition or restriction was removed or changed
+- OMISSION: the claim is missing from the translation
+- NEGATION_FLIP: negation reversed
+- NUMBER_CHANGE: a number, percentage, date or quantity changed
+- ENTITY_CHANGE: a name, place, organization or technical term changed into a different one
+- COMPARISON_REVERSED: comparison direction changed
+- CAUSAL_CHANGE: cause and effect reversed, correlation turned into causation, or a causal link invented
+- CONTRADICTION: any other reversal of meaning
 
-def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
-    a = np.array(vec_a)
-    b = np.array(vec_b)
+STEP 3 - Additions.
+List every span of the translation that adds content not present in the source:
+- MINOR_ADDITION: a word that adds no new proposition (intensifier, connective, clarifying word), e.g. "simply", "accordingly"
+- UNSUPPORTED_ADDITION: a new proposition, reason, explanation, justification, example or fact
+Do not list pure style changes. If nothing was added, return an empty list.
 
-    return float(
-        np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-    )
-
-
-def semantic_similarity(source_text: str, translated_text: str) -> float:
-    source_vector, translated_vector = embed_texts(
-        [source_text, translated_text], task_type="RETRIEVAL_DOCUMENT"
-    )
-    return cosine_similarity(source_vector, translated_vector)
-
-
-# ---------------------------------------------------------------- 예전 방식(호출 3번)
-
-def extract_claims(text: str, language: str = "ko") -> list[str]:
-    prompt = f"""
-You are extracting atomic claims from text.
-
-Rules:
-1. Extract only claims explicitly supported by the input.
-2. Do not add new information.
-3. Preserve negation, numbers, modality, conditions, and comparisons.
-4. Each claim should contain only one independently verifiable proposition.
-5. Return only JSON in this format:
-{{"claims": ["claim 1", "claim 2"]}}
-
-Language of the input: {language}
-
-Text:
-{text}
-"""
-    return _generate_json(prompt, label=f"claim extraction ({language})")["claims"]
-
-
-# 뉘앙스 점검 기준. 예전 방식(check_semantic_nuance)과 묶음 호출(analyze_meaning)이 같은 문구를 씁니다.
-_NUANCE_CRITERIA = """Focus ONLY on meaning preservation, not fluency or style.
-
-IMPORTANT EVALUATION PRINCIPLES:
-
-Evaluate semantic equivalence, not word-for-word similarity.
-
-Do NOT flag:
-- Natural paraphrasing that preserves the original meaning.
-- Minor emphasis or discourse modifiers that do not materially
-  change the meaning.
-- Words absent from the source that introduce no new factual claim.
-
-DO flag:
-- Unsupported factual claims, explanations, or justifications.
-- Changes in modality or certainty (may, might, must, inevitably).
-- Changes in negation, tense, conditions, comparisons, or numbers
-  that alter the original meaning.
-- Omissions of meaningful information.
-
-UNSUPPORTED ADDITION CRITERION:
-
-An unsupported addition must introduce materially new semantic
-content, not merely a word absent from the source.
-
-Distinguish harmless lexical elaboration from the introduction
-of a new proposition, causal explanation, or factual assertion.
-
-When uncertain, do not automatically classify a minor wording
-difference as an error.
-
-Check carefully:
-1. Modality and certainty (may, might, must, inevitably)
-2. Subjectivity and attribution (I think, it seems)
-3. Negation
-4. Tense and temporal reference
-5. Conditions and comparisons
-6. Numbers and named entities
-7. Unsupported additions and omissions"""
-
-
-def check_semantic_nuance(
-    source_text: str,
-    translated_text: str
-) -> dict:
-    """
-    NLI가 놓치기 쉬운 의미 변화 확인.
-    특히 헤징, 확신 정도, 시제, 부정, 조건, 수치 등을 검증.
-    """
-
-    prompt = f"""
-You are a bilingual Korean-English translation evaluator.
-
-Evaluate whether the English translation preserves the
-meaning of the Korean source.
-
-{_NUANCE_CRITERIA}
-
-Return ONLY valid JSON:
-{{
-  "has_meaning_error": true,
-  "error_types": ["MODALITY_SHIFT"],
-  "explanation": "Briefly explain the error in Korean."
-}}
-
-If no meaning error exists, return:
-{{
-  "has_meaning_error": false,
-  "error_types": [],
-  "explanation": ""
-}}
+Write every "note" as one short sentence in Korean explaining the problem ("" for OK).
+Return ONLY JSON:
+{{"source_claims": [{{"claim": "...", "evidence": "...", "label": "OK", "note": ""}}],
+  "additions": [{{"text": "...", "label": "UNSUPPORTED_ADDITION", "note": "..."}}]}}
 
 Korean source:
-{source_text}
+{source}
 
 English translation:
-{translated_text}
+{translation}
 """
-    return _normalize_nuance(_generate_json(prompt, label="semantic nuance check"))
+
+_SPLIT_STEP = """Split the Korean source into atomic claims: one proposition each, written in Korean.
+Keep negation, numbers, modality and hedges (수 있다, 것 같다, 보인다), conditions, comparisons and
+attribution (생각한다, 내 생각엔) inside the claim they belong to. A command or request is one claim.
+Never return zero claims."""
+
+_FIXED_STEP = """The source claims are already fixed. Use exactly these claims, in this order, without changing them:
+{claims}"""
 
 
-def _normalize_nuance(result: dict) -> dict:
-    return {
-        "has_meaning_error": bool(result.get("has_meaning_error", False)),
-        "error_types": result.get("error_types", []) or [],
-        "explanation": result.get("explanation", "") or "",
-    }
-
-
-# ---------------------------------------------------------------- 묶음 호출(호출 1번)
-
-def analyze_meaning(
-    source_text: str,
-    translated_text: str,
-    source_claims: list[str] | None = None,
-) -> dict:
-    """원문 claim · 번역문 claim · 뉘앙스 점검을 Gemini 호출 1번으로 받습니다.
-
-    source_claims를 주면(재번역 시도) 원문 claim은 다시 뽑지 않고 그대로 씁니다.
-    반환: {"source_claims", "translation_claims", "semantic_nuance"}
-    """
-    if source_claims is None:
-        claim_task = """Task 1 - Atomic claims.
-Extract atomic claims separately from the Korean source (write them in Korean)
-and from the English translation (write them in English)."""
-        claim_json = '"source_claims": ["...", "..."],\n  "translation_claims": ["...", "..."],'
+def _judge_prompt(source: str, translation: str, fixed_claims: list[str] | None) -> str:
+    if fixed_claims:
+        step = _FIXED_STEP.format(claims="\n".join(f"- {c}" for c in fixed_claims))
     else:
-        listed = "\n".join(f"- {c}" for c in source_claims)
-        claim_task = f"""Task 1 - Atomic claims.
-The Korean source claims are already fixed:
-{listed}
-Extract atomic claims from the English translation only (write them in English)."""
-        claim_json = '"translation_claims": ["...", "..."],'
-
-    prompt = f"""You are a bilingual Korean-English translation evaluator.
-
-{claim_task}
-Claim rules:
-1. Extract only claims explicitly supported by that text.
-2. Do not add new information.
-3. Preserve negation, numbers, modality, conditions, and comparisons.
-4. Each claim should contain only one independently verifiable proposition.
-5. Extract claims from each text independently; do not let one text shape the other's claims.
-
-Task 2 - Meaning check.
-Evaluate whether the English translation preserves the meaning of the Korean source.
-{_NUANCE_CRITERIA}
-
-Return ONLY valid JSON in this format:
-{{
-  {claim_json}
-  "has_meaning_error": false,
-  "error_types": [],
-  "explanation": ""
-}}
-If there is a meaning error, set "has_meaning_error": true, list types such as
-"MODALITY_SHIFT", "UNSUPPORTED_ADDITION", "OMISSION", "TENSE_SHIFT" in "error_types",
-and briefly explain the error in Korean in "explanation".
-
-Korean source:
-{source_text}
-
-English translation:
-{translated_text}
-"""
-    result = _generate_json(prompt, label="meaning analysis (claims + nuance)")
-    return {
-        "source_claims": source_claims if source_claims is not None else list(result.get("source_claims", [])),
-        "translation_claims": list(result.get("translation_claims", [])),
-        "semantic_nuance": _normalize_nuance(result),
-    }
+        step = _SPLIT_STEP
+    return _JUDGE_PROMPT.format(claim_step=step, source=source.strip(), translation=translation.strip())
 
 
-# ---------------------------------------------------------------- NLI
+def _validate_judgement(result: dict) -> None:
+    claims = result.get("source_claims")
+    if not isinstance(claims, list) or not claims:
+        raise ValueError("판정 결과에 source_claims가 없음")
+    if not isinstance(result.get("additions", []), list):
+        raise ValueError("additions 형식 오류")
 
-def nli_check_batch(pairs: list[tuple[str, str]]) -> list[dict]:
-    """(전제, 가설) 쌍 여러 개를 한 번의 배치 추론으로 판정. 결과 형식은 nli_check와 같음."""
-    if not pairs:
-        return []
-    import torch
 
-    tok, model = load_nli_model()
-    inputs = tok(
-        [p for p, _ in pairs],
-        [h for _, h in pairs],
-        return_tensors="pt",
-        truncation=True,
-        padding=True,
+def judge(source: str, translation: str, fixed_claims: list[str] | None = None) -> tuple[dict, str]:
+    """판정 모델 호출. (판정 dict, 실제 사용 모델) 반환."""
+    return llm.generate(
+        _judge_prompt(source, translation, fixed_claims),
+        model=config.VERIFY_MODEL,
+        fallback_model=config.VERIFY_FALLBACK_MODEL,
+        thinking_level=config.VERIFY_THINKING_LEVEL,
+        json_mode=True,
+        label="meaning judge",
+        validate=_validate_judgement,
     )
-    with torch.no_grad():
-        logits = model(**inputs).logits
-    probs = torch.softmax(logits, dim=1)
-    labels = model.config.id2label
 
-    out = []
-    for row in probs:
-        scores = {labels[i]: row[i].item() for i in range(len(row))}
-        best = max(scores, key=scores.get)
-        out.append({"label": best, "confidence": scores[best], "scores": scores})
+
+# ---------------------------------------------------------------- 규칙 검사: 숫자
+_EN_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+    "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30,
+    "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+    "hundred": 100, "thousand": 1000, "million": 1_000_000, "billion": 1_000_000_000,
+    "half": 0.5, "double": 2, "twice": 2, "single": 1, "dozen": 12,
+}
+_KO_NATIVE = {"한": 1, "하나": 1, "두": 2, "둘": 2, "세": 3, "셋": 3, "네": 4, "넷": 4, "다섯": 5, "여섯": 6,
+              "일곱": 7, "여덟": 8, "아홉": 9, "열": 10, "스무": 20, "스물": 20}
+_KO_COUNTERS = "가지|개|명|번|살|시간|달|해|권|편|장|차례|배|단계|대|군데|마리|주|일|년|분|초|층|줄|쪽|부분"
+_KO_NATIVE_RE = re.compile(r"(?<![가-힣])(" + "|".join(sorted(_KO_NATIVE, key=len, reverse=True)) +
+                           r")\s?(?:" + _KO_COUNTERS + r")")
+_KO_UNIT = {"천": 1_000, "만": 10_000, "억": 100_000_000, "조": 1_000_000_000_000}
+_NUM_RE = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?")
+
+
+def _norm(x: float) -> str:
+    return f"{x:g}"
+
+
+def _ko_numbers(text: str) -> set[str]:
+    out = set()
+    for m in re.finditer(r"(\d+(?:,\d{3})*(?:\.\d+)?)\s?([천만억조])?", text):
+        v = float(m.group(1).replace(",", ""))
+        out.add(_norm(v))
+        if m.group(2):
+            out.add(_norm(v * _KO_UNIT[m.group(2)]))
     return out
 
 
-def nli_check(premise: str, hypothesis: str) -> dict:
-    return nli_check_batch([(premise, hypothesis)])[0]
+def _ko_native_numbers(text: str) -> set[str]:
+    return {_norm(_KO_NATIVE[m.group(1)]) for m in _KO_NATIVE_RE.finditer(text)}
 
 
-def _nli_claims(source_text: str, translated_text: str,
-                source_claims: list[str], translation_claims: list[str]) -> dict:
-    """Direction 1: 번역문이 원문 claim을 지원하는가 (누락)
-    Direction 2: 원문이 번역문 claim을 지원하는가 (추가·과장). 두 방향을 한 배치로 추론."""
-    pairs = [(translated_text, c) for c in source_claims] + [(source_text, c) for c in translation_claims]
-    results = nli_check_batch(pairs)
-    n = len(source_claims)
-
-    def _rows(claims, res):
-        return [{"claim": c, "label": r["label"], "confidence": r["confidence"]} for c, r in zip(claims, res)]
-
-    return {
-        "source_claims": _rows(source_claims, results[:n]),
-        "translation_claims": _rows(translation_claims, results[n:]),
-    }
+def _en_numbers(text: str) -> set[str]:
+    out = set()
+    for m in _NUM_RE.finditer(text):
+        tail = text[m.end():m.end() + 2].lower()
+        if tail in ("st", "nd", "rd", "th"):  # 서수(1st 등)는 원문 표현이 다양해서 제외
+            continue
+        out.add(_norm(float(m.group(0).replace(",", ""))))
+    return out
 
 
-def verify_claims(source_text: str, translated_text: str) -> dict:
-    """예전 방식의 claim 검증(원문·번역문 claim을 각각 따로 추출)."""
-    return _nli_claims(
-        source_text, translated_text,
-        extract_claims(source_text, language="ko"),
-        extract_claims(translated_text, language="en"),
-    )
+def _en_number_words(text: str) -> set[str]:
+    return {_norm(v) for w, v in _EN_WORDS.items() if re.search(rf"\b{w}\b", text, re.I)}
 
 
-# ---------------------------------------------------------------- 판정
-
-def build_failure_reasons(claim_results: dict) -> list[dict]:
-    failure_reasons = []
-
-    # Direction 1: Source -> Translation
-    # 원문의 claim이 번역에서 보존되지 않은 경우
-    for result in claim_results["source_claims"]:
-        if result["label"] != "entailment":
-
-            if result["label"] == "contradiction":
-                error_type = "CONTRADICTION"
-            else:
-                error_type = "OMISSION_OR_UNSUPPORTED"
-
-            failure_reasons.append({
-                "type": error_type,
-                "direction": "source_to_translation",
-                "claim": result["claim"],
-                "label": result["label"],
-                "confidence": result["confidence"]
-            })
-
-    # Direction 2: Translation -> Source
-    # 번역의 claim이 원문에서 지원되지 않는 경우
-    for result in claim_results["translation_claims"]:
-        if result["label"] != "entailment":
-
-            if result["label"] == "contradiction":
-                error_type = "CONTRADICTION"
-            else:
-                error_type = "UNSUPPORTED_ADDITION"
-
-            failure_reasons.append({
-                "type": error_type,
-                "direction": "translation_to_source",
-                "claim": result["claim"],
-                "label": result["label"],
-                "confidence": result["confidence"]
-            })
-
-    return failure_reasons
+def check_numbers(source: str, translation: str) -> list[dict]:
+    """원문 숫자(아라비아 숫자)가 번역문에 있는지, 번역문에 원문에 없는 숫자가 생겼는지."""
+    ko, en = _ko_numbers(source), _en_numbers(translation)
+    en_any = en | _en_number_words(translation)
+    ko_any = ko | _ko_native_numbers(source)
+    issues = []
+    missing = sorted(n for n in ko if n not in en_any)
+    # 원문 단위 표기(1만)와 영어(10,000)처럼 같은 수가 다르게 보이는 경우: 한 묶음 중 하나만 있으면 통과
+    for m in re.finditer(r"(\d+(?:,\d{3})*(?:\.\d+)?)\s?([천만억조])", source):
+        v = float(m.group(1).replace(",", ""))
+        pair = {_norm(v), _norm(v * _KO_UNIT[m.group(2)])}
+        if pair & en_any:
+            missing = [n for n in missing if n not in pair]
+    extra = sorted(n for n in en if n not in ko_any)
+    if missing:
+        issues.append({"type": "NUMBER_CHECK", "claim": "", "evidence": "",
+                       "note": f"원문의 숫자 {', '.join(missing)}이(가) 번역문에서 보이지 않습니다."})
+    if extra:
+        issues.append({"type": "NUMBER_CHECK", "claim": "", "evidence": "",
+                       "note": f"번역문에 원문에 없는 숫자 {', '.join(extra)}이(가) 있습니다."})
+    return issues
 
 
-def determine_verdict(failure_reasons: list[dict]) -> tuple[str, list[dict]]:
-    critical_errors = []
-
-    for reason in failure_reasons:
-        if reason["type"] == "CONTRADICTION":
-            critical_errors.append(reason)
-
-    if critical_errors:
-        verdict = "FAIL"
-    elif failure_reasons:
-        verdict = "REVIEW"
-    else:
-        verdict = "PASS"
-
-    return verdict, critical_errors
+# ---------------------------------------------------------------- 검증
+def cosine_similarity(vec_a, vec_b) -> float:
+    a, b = np.array(vec_a), np.array(vec_b)
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
 
-def verify_translation(
-    source_text: str,
-    translated_text: str,
-    source_cache: dict | None = None,
-) -> dict:
-    """번역 검증. 반환 형식은 예전과 같습니다.
+def _issue(kind: str, origin: str, *, claim="", evidence="", note="") -> dict:
+    return {"type": kind, "severity": SEVERITY.get(kind, "major"), "origin": origin,
+            "label_ko": ISSUE_KO.get(kind, kind), "claim": claim, "evidence": evidence, "note": note}
 
-    source_cache: 같은 원문을 여러 번 검증할 때(재번역 루프) 넘기는 빈 dict. 첫 호출에서
-    원문 임베딩·원문 claim을 채워 두고, 이후 호출에서는 다시 계산하지 않습니다.
-    """
+
+def build_issues(judgement: dict, rule_issues: list[dict], similarity: float | None) -> tuple[list, list, list]:
+    """판정 결과 + 규칙 검사 → (source_claims, additions, issues). 심각도는 SEVERITY 표로만 정함."""
+    source_claims, additions, issues = [], [], []
+    for c in judgement.get("source_claims", []):
+        label = str(c.get("label", "")).strip().upper()
+        if label not in CLAIM_LABELS:
+            label = "UNKNOWN_LABEL"
+        row = {"claim": str(c.get("claim", "")), "evidence": str(c.get("evidence", "") or ""),
+               "label": label, "severity": SEVERITY[label], "note": str(c.get("note", "") or "")}
+        source_claims.append(row)
+        if label != "OK":
+            issues.append(_issue(label, "judge", claim=row["claim"], evidence=row["evidence"], note=row["note"]))
+    for a in judgement.get("additions", []) or []:
+        label = str(a.get("label", "")).strip().upper()
+        if label not in ADDITION_LABELS:
+            label = "UNSUPPORTED_ADDITION" if label else "MINOR_ADDITION"
+        row = {"text": str(a.get("text", "")), "label": label, "severity": SEVERITY[label],
+               "note": str(a.get("note", "") or "")}
+        additions.append(row)
+        issues.append(_issue(label, "judge", evidence=row["text"], note=row["note"]))
+    judge_flagged_numbers = any(c["label"] == "NUMBER_CHANGE" for c in source_claims)
+    for r in rule_issues:
+        if r["type"] == "NUMBER_CHECK" and judge_flagged_numbers:
+            continue  # 판정 모델이 이미 숫자 변경으로 잡음
+        issues.append(_issue(r["type"], "rule", note=r["note"]))
+    if similarity is not None and similarity < config.SIMILARITY_GUARD:
+        issues.append(_issue("LOW_SIMILARITY", "rule",
+                             note=f"원문·번역문 임베딩 유사도 {similarity:.2f} < {config.SIMILARITY_GUARD}"))
+    return source_claims, additions, issues
+
+
+def decide_verdict(issues: list[dict]) -> str:
+    worst = max((SEVERITY_RANK[i["severity"]] for i in issues), default=0)
+    return "FAIL" if worst >= 3 else "REVIEW" if worst == 2 else "PASS"
+
+
+def verify_translation(source_text: str, translated_text: str, source_cache: dict | None = None) -> dict:
+    """번역 검증. source_cache(빈 dict)를 넘기면 원문 claim·원문 임베딩을 재번역 시도 간 재사용합니다
+    (시도마다 같은 원문 claim으로 판정해야 시도끼리 점수를 공정하게 비교할 수 있음)."""
+    from .meaning_score import calculate_meaning_score
+
     cache = source_cache if source_cache is not None else {}
-    single = config.VERIFY_SINGLE_CALL
 
-    def _embeddings():
-        if "embedding" in cache:
-            return cache["embedding"], embed_text(translated_text, task_type="RETRIEVAL_DOCUMENT")
-        src_vec, tr_vec = embed_texts([source_text, translated_text], task_type="RETRIEVAL_DOCUMENT")
-        cache["embedding"] = src_vec
-        return src_vec, tr_vec
+    def _similarity():
+        try:
+            if "embedding" in cache:
+                return cosine_similarity(cache["embedding"], embed_text(translated_text))
+            src, tr = embed_texts([source_text, translated_text])
+            cache["embedding"] = src
+            return cosine_similarity(src, tr)
+        except Exception as e:  # 유사도는 보조 지표라 실패해도 판정은 계속
+            print(f"[verify] 유사도 계산 실패, 건너뜀: {e}")
+            return None
 
-    def _analysis():
-        if single:
-            return analyze_meaning(source_text, translated_text, cache.get("claims"))
-        src_claims = cache.get("claims")
-        if src_claims is None:
-            src_claims = extract_claims(source_text, language="ko")
-        return {
-            "source_claims": src_claims,
-            "translation_claims": extract_claims(translated_text, language="en"),
-            "semantic_nuance": check_semantic_nuance(source_text, translated_text),
-        }
-
-    # 임베딩(빠름)과 Gemini 분석(느림)을 동시에 보냄
     with ThreadPoolExecutor(max_workers=2) as pool:
-        f_emb = pool.submit(_embeddings)
-        f_ana = pool.submit(_analysis)
-        src_vec, tr_vec = f_emb.result()
-        analysis = f_ana.result()
+        f_sim = pool.submit(_similarity)
+        f_judge = pool.submit(judge, source_text, translated_text, cache.get("claims"))
+        similarity = f_sim.result()
+        judgement, judge_model = f_judge.result()
 
-    cache["claims"] = analysis["source_claims"]
-    similarity = cosine_similarity(src_vec, tr_vec)
+    rule_issues = check_numbers(source_text, translated_text)
+    source_claims, additions, issues = build_issues(judgement, rule_issues, similarity)
+    cache.setdefault("claims", [c["claim"] for c in source_claims])
 
-    claim_results = _nli_claims(
-        source_text, translated_text,
-        analysis["source_claims"], analysis["translation_claims"],
-    )
-    failure_reasons = build_failure_reasons(claim_results)
-
-    # 기존 NLI 판정
-    nli_verdict, critical_errors = determine_verdict(failure_reasons)
-
-    # Gemini 보조 검증
-    nuance = analysis["semantic_nuance"]
-    if nuance["has_meaning_error"]:
-        failure_reasons.append({
-            "type": "SEMANTIC_NUANCE",
-            "direction": "source_to_translation",
-            "claim": nuance["explanation"],
-            "label": "gemini_review",
-            "confidence": None,
-            "error_types": nuance["error_types"]
-        })
-
-    # 기존 FAIL은 유지하고, Gemini가 오류를 발견하면 REVIEW
-    if nli_verdict == "FAIL":
-        verdict = "FAIL"
-    elif failure_reasons:
-        verdict = "REVIEW"
-    else:
-        verdict = "PASS"
-
-    return {
+    result = {
+        "verdict": decide_verdict(issues),
+        "source_claims": source_claims,
+        "additions": additions,
+        "issues": issues,
+        "failure_reasons": [i for i in issues if SEVERITY_RANK[i["severity"]] >= 2],
+        "critical_errors": [i for i in issues if i["severity"] == "critical"],
         "semantic_similarity": similarity,
-        "source_claims": claim_results["source_claims"],
-        "translation_claims": claim_results["translation_claims"],
-        "failure_reasons": failure_reasons,
-        "critical_errors": critical_errors,
-        "verdict": verdict,
-        "semantic_nuance": nuance
+        "judge_model": judge_model,
     }
+    result.update(calculate_meaning_score(result))
+    return result

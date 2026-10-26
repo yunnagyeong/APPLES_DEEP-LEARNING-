@@ -28,12 +28,17 @@ def _status_code(e: Exception) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _is_daily_quota(e: Exception) -> bool:
+    """하루 한도 소진(429 + PerDay). 기다려도 오늘은 안 풀림."""
+    return _status_code(e) == 429 and "PerDay" in str(e)
+
+
 def _is_fatal(e: Exception) -> bool:
-    """재시도해도 소용없는 오류인가."""
+    """재시도해도 소용없는 오류인가. JSON 파싱 실패(ValueError)는 다시 물으면 될 수 있어 재시도."""
     code = _status_code(e)
     if code in _NON_RETRYABLE_CODES:
         return True
-    return code == 429 and "PerDay" in str(e)
+    return _is_daily_quota(e)
 
 
 def _server_retry_delay(e: Exception) -> float | None:

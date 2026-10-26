@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env")
 
-from src.verify import check_semantic_nuance
+from src.verify_legacy import check_semantic_nuance
 
 INPUT = ROOT / "data" / "measure" / "meaning_evaluation.jsonl"
 OUTPUT = ROOT / "data" / "measure" / "nuance_evaluation.jsonl"

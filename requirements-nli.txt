@@ -1,0 +1,7 @@
+# [선택] 7주차 레거시 검증(src/verify_legacy.py: 다국어 NLI)을 다시 돌릴 때만 필요.
+# 지금 파이프라인(src/verify.py)은 필요 없음. 설치 용량 수 GB, 첫 실행 때 모델 다운로드.
+-r requirements.txt
+torch
+transformers
+sentencepiece
+protobuf
