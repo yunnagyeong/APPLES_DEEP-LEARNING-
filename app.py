@@ -188,6 +188,7 @@ def render_verification(detail):
         st.caption(
             f"원문 claim {comp['source_claim_count']}개 · 보존도 {comp['fidelity']:.2f} · "
             f"추가 내용 감점 ×{comp['addition_factor']:.2f} · 규칙 검사 ×{comp['rule_factor']:.2f}"
+            + (f" · 상한 {comp['severity_cap']:.0f}점" if comp.get("severity_cap", 100) < 100 else "")
             + (f" · 임베딩 유사도 {sim:.2f}" if sim is not None else "")
             + f" · 판정 모델 {detail['judge_model']}"
         )

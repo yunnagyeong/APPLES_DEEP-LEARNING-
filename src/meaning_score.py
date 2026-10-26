@@ -1,14 +1,15 @@
 """Meaning Score — 의미 보존 점수 (0~100).
 
 v2 (src/verify.py 결과용, 기본)
-    M = 100 × F × A × G
+    M = min(100 × F × A × G, 상한)
+    상한 = 가장 심한 문제가 critical이면 50, major면 75, minor면 95, 문제 없으면 100
     F (fidelity)   = 원문 claim별 점수의 평균. OK 1.0 / minor 0.85 / major 0.6 / critical 0.0
     A (additions)  = Π(1 − p). 번역문에만 있는 내용마다 감점. MINOR_ADDITION 0.03 / UNSUPPORTED_ADDITION 0.5
     G (rule guard) = Π 0.6. 규칙 검사(숫자 불일치·유사도 하한) 문제마다 major와 같은 비율로 감점
 
     설계 의도
     - 점수가 판정(verdict)과 같은 근거(오류 유형 → 심각도 표)에서 나오므로 둘이 어긋나지 않음.
-      대략 PASS ≥ 85, REVIEW 약 35~60, 지어낸 근거·의미 반전이 있으면 50 이하.
+      상한 덕분에 구간이 겹치지 않음: PASS 85~100, REVIEW ≤ 75, FAIL ≤ 50 (긴 문단에서도 동일).
     - 7주차 공식(S^0.2·C^0.4·T^0.4·(1−R))의 문제 해결:
       · C(원문 claim 보존율)가 32건 전부 1.0이라 변별력이 없었음 → claim마다 "어떻게" 바뀌었는지 반영
       · 임베딩 유사도 S(정상 0.85~0.95, 오류 0.83~0.91)는 차이가 작아 점수에서 뺌(규칙 하한으로만 사용)
@@ -26,6 +27,10 @@ from __future__ import annotations
 CLAIM_CREDIT = {"none": 1.0, "minor": 0.85, "major": 0.6, "critical": 0.0}
 ADDITION_PENALTY = {"MINOR_ADDITION": 0.03, "UNSUPPORTED_ADDITION": 0.5}
 RULE_FACTOR = 0.6
+# 가장 심한 문제의 심각도별 점수 상한. claim이 많은 긴 문단에서 오류 하나가 평균에 묻혀
+# "FAIL인데 91점"이 되는 것을 막아 점수 구간이 판정과 겹치지 않게 함 (새 평가셋에서 발견).
+SEVERITY_CAP = {"minor": 95.0, "major": 75.0, "critical": 50.0}
+_RANK = {"none": 0, "minor": 1, "major": 2, "critical": 3}
 
 
 def calculate_meaning_score(verification: dict) -> dict:
@@ -46,7 +51,10 @@ def _score_v2(v: dict) -> dict:
     for i in v.get("issues", []):
         if i.get("origin") == "rule":
             guard *= RULE_FACTOR
-    score = round(100.0 * fidelity * additions * guard, 1)
+    raw = 100.0 * fidelity * additions * guard
+    worst = max((i["severity"] for i in v.get("issues", [])), key=lambda x: _RANK.get(x, 0), default="none")
+    cap = SEVERITY_CAP.get(worst, 100.0)
+    score = round(min(raw, cap), 1)
     return {
         "meaning_score": score,
         "score_method": "CLAIM_ALIGNMENT_V2",
@@ -54,6 +62,7 @@ def _score_v2(v: dict) -> dict:
             "fidelity": round(fidelity, 3),
             "addition_factor": round(additions, 3),
             "rule_factor": round(guard, 3),
+            "severity_cap": cap,
             "semantic_similarity": v.get("semantic_similarity"),
             "source_claim_count": len(claims),
             "addition_count": len(v.get("additions", [])),
