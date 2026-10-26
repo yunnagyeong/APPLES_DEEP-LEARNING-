@@ -50,11 +50,13 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 # 아래 두 모델명은 이 스캐폴드를 만든 시점 기준이며, Google이 모델 라인업을 자주 바꾸므로
 # 에러가 나면 `python scripts/list_models.py`로 지금 쓸 수 있는 모델명을 먼저 확인하세요.
 EMBEDDING_MODEL = "gemini-embedding-001"
-GENERATION_MODEL = "gemini-3.5-flash-lite"  # 팀이 실습 때 무료 티어로 이미 써본 모델
-# 의미 검증 판정 모델. 무료 티어 한도가 빡빡함(분당 5회·하루 20회).
+GENERATION_MODEL = "gemini-3.5-flash-lite"  # 번역 생성(빠르고 저렴)
+# 의미 검증 판정 모델 (유료 API 기준)
 VERIFY_MODEL = "gemini-3.6-flash"
-# VERIFY_MODEL의 하루 한도가 끝나면 이 모델로 판정(시연이 멈추지 않게). None이면 대체하지 않고 오류.
-VERIFY_FALLBACK_MODEL = GENERATION_MODEL
+# 판정 모델 한도가 끝났을 때 대신 쓸 모델. None이면 대체하지 않음(기본).
+# 대체 모델로 조용히 바뀌면 판정 기준이 달라져 평가 결과를 비교할 수 없으므로 유료 API에서는 끄는 게 맞음.
+# 무료 티어로 시연할 때만 GENERATION_MODEL 등으로 켜세요(결과의 judge_model에 실제 모델이 기록됨).
+VERIFY_FALLBACK_MODEL = None
 # 판정 호출의 생각(추론) 길이. "low"면 지연시간이 크게 줄어듦. 지원하지 않는 모델이면 자동으로 무시됨.
 VERIFY_THINKING_LEVEL = "low"
 
@@ -63,7 +65,7 @@ VERIFY_THINKING_LEVEL = "low"
 # 지금까지 정상·오류 번역 모두 0.83~0.95였으므로 꽤 보수적인 값.
 SIMILARITY_GUARD = 0.70
 
-# 재번역 기본 횟수 (최초 번역 + 이 횟수). 앱 데모는 app.py의 DEMO_MAX_RETRIES를 씀.
+# 재번역 최대 횟수 (최초 번역 + 이 횟수). 앱·CLI·스크립트 공통.
 DEFAULT_MAX_RETRIES = 2
 
 # [레거시] src/verify_legacy.py(7주차 NLI 검증)용 설정

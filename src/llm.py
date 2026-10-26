@@ -4,8 +4,8 @@
 - json_mode=True면 JSON 응답을 강제하고 파싱까지 해서 dict로 돌려줍니다(파싱 실패도 재시도 대상).
 - thinking_level을 주면 생각(추론) 길이를 줄여 지연시간을 줄입니다. 모델이 이 옵션을 지원하지 않아
   400이 나면 옵션 없이 다시 보내고, 이후로는 그 모델에 보내지 않습니다.
-- fallback_model을 주면 1순위 모델의 하루 한도가 끝났을 때(429 PerDay) 그 모델로 바꿔 보냅니다.
-  무료 티어로 박람회 시연을 하다가 검증 모델 한도가 끝나도 앱이 멈추지 않게 하기 위함입니다.
+- fallback_model을 주면 1순위 모델의 하루 한도가 끝났을 때(429 PerDay) 그 모델로 바꿔 보냅니다
+  (config.VERIFY_FALLBACK_MODEL, 기본 None = 대체 안 함).
 """
 
 from __future__ import annotations

@@ -237,7 +237,7 @@ def translate_with_verification(
         best_attempt       반환한 번역이 몇 번째 시도인지 (1부터)
         translations       시도별 번역
         verification_history  시도별 verify_translation() 결과
-        judge_model        판정에 쓴 모델 (하루 한도 소진 시 대체 모델일 수 있음)
+        judge_model        판정에 쓴 모델 (VERIFY_FALLBACK_MODEL을 켰다면 대체 모델일 수 있음)
         notice             검색 신뢰도 낮음 안내문 (없으면 "")
     """
     from .verify import verify_translation

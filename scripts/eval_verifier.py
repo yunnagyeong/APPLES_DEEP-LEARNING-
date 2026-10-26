@@ -1,12 +1,13 @@
 """의미 검증 v2(src/verify.py)를 사람 라벨(error_cases.csv 32건)과 비교합니다.
 
 사용법 (프로젝트 루트):
-  python scripts/eval_verifier.py                 # 남은 사례를 이어서 평가하고 요약 출력
-  python scripts/eval_verifier.py --limit 10      # 이번 실행에서 최대 10건만 (무료 티어 하루 한도 대비)
+  python scripts/eval_verifier.py                 # 남은 사례를 동시에 4건씩 평가하고 요약 출력 (32건 약 1~2분)
+  python scripts/eval_verifier.py --workers 8     # 더 많이 동시에
+  python scripts/eval_verifier.py --limit 10      # 이번 실행에서 최대 10건만
   python scripts/eval_verifier.py --report        # API 호출 없이 저장된 결과로 요약만
   python scripts/eval_verifier.py --model gemini-3.5-flash-lite --out data/measure/verifier_v2_lite.jsonl
 
-- 사례당 판정 모델 1회 + 임베딩 1회. 결과는 한 줄씩 저장되어 중간에 끊겨도 다시 실행하면 이어서 함.
+- 사례당 판정 모델 1회 + 임베딩 1회. 결과는 끝나는 대로 한 줄씩 저장되어, 중간에 끊겨도 다시 실행하면 이어서 함.
 - 같은 32건으로 레거시(7주차) 검증의 결과(data/measure/meaning_evaluation.jsonl + nuance_evaluation.jsonl)와
   나란히 비교합니다.
 - 주의: v2 판정 기준(유형·심각도·점수 가중치)을 이 32건을 보고 설계했으므로 여기 숫자는 낙관적입니다.
@@ -85,6 +86,7 @@ def main():
     ap.add_argument("--cases", default=str(ROOT / "error_cases.csv"))
     ap.add_argument("--out", default=str(ROOT / "data/measure/verifier_v2_eval.jsonl"))
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--workers", type=int, default=4, help="동시에 평가할 사례 수")
     ap.add_argument("--model", default=None, help="판정 모델 바꾸기(기본 config.VERIFY_MODEL)")
     ap.add_argument("--report", action="store_true")
     a = ap.parse_args()
@@ -100,21 +102,36 @@ def main():
         todo = [c for c in cases if c["번호"] not in done][: a.limit]
         print(f"평가 {len(todo)}건 (이미 {len(done)}건 완료)")
         out.parent.mkdir(parents=True, exist_ok=True)
-        for c in todo:
-            try:
-                v = verify_translation(c["원문"], c["번역"])
-            except Exception as e:
-                print(f"#{c['번호']} 실패, 중단합니다(다시 실행하면 이어서 함): {e}")
-                break
-            rec = {"id": c["번호"], "human_severity": c["심각도"], "human_error": c["문제유형"],
-                   "verdict": v["verdict"], "meaning_score": v["meaning_score"], "issues": v["issues"],
-                   "source_claims": v["source_claims"], "additions": v["additions"],
-                   "semantic_similarity": v["semantic_similarity"], "judge_model": v["judge_model"]}
-            with open(out, "a", encoding="utf-8") as f:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            done[c["번호"]] = rec
-            print(f"#{c['번호']:>2} 사람={c['심각도'] or '정상':2} → {v['verdict']:6} {v['meaning_score']:5.0f} [{v['judge_model']}]")
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        lock = threading.Lock()
+
+        def _one(c):
+            return c, verify_translation(c["원문"], c["번역"])
+
+        with ThreadPoolExecutor(max_workers=max(1, a.workers)) as pool:
+            futures = [pool.submit(_one, c) for c in todo]
+            for fut in as_completed(futures):
+                try:
+                    c, v = fut.result()
+                except Exception as e:
+                    print(f"실패(다시 실행하면 이 사례부터 이어서 함): {e}")
+                    continue
+                with lock:
+                    _save(out, c, v, done)
+
     report(cases, done)
+
+
+def _save(out, c, v, done):
+    rec = {"id": c["번호"], "human_severity": c["심각도"], "human_error": c["문제유형"],
+           "verdict": v["verdict"], "meaning_score": v["meaning_score"], "issues": v["issues"],
+           "source_claims": v["source_claims"], "additions": v["additions"],
+           "semantic_similarity": v["semantic_similarity"], "judge_model": v["judge_model"]}
+    with open(out, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    done[c["번호"]] = rec
+    print(f"#{c['번호']:>2} 사람={c['심각도'] or '정상':2} → {v['verdict']:6} {v['meaning_score']:5.0f} [{v['judge_model']}]")
 
 
 if __name__ == "__main__":

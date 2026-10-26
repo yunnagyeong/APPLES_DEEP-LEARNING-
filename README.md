@@ -40,17 +40,17 @@ streamlit run app.py
 
 | 목적 | 명령 |
 |---|---|
-| 검증기를 사람 라벨 32건과 비교 | `python scripts/eval_verifier.py` (하루 한도 넘으면 `--limit`로 나눠서, 이어서 실행됨) |
-| 조건 C 일괄 실행 | `python scripts/run_condition_c.py --user ganghee` → `results/v2/` |
+| 검증기를 사람 라벨 32건과 비교 | `python scripts/eval_verifier.py` (4건씩 동시 실행, 끊겨도 이어서 실행됨) |
+| 조건 C 일괄 실행 | `python scripts/run_condition_c.py --user ganghee [--workers 4]` → `results/v2/` |
 | 호출 수 확인(API 없음) | `python scripts/measure_pipeline.py --mode offline` |
 | 예시 재색인(예시 추가 후) | `python scripts/convert_data_to_examples.py <user>` → `python scripts/build_index.py <user>` |
 | 문체 기준 분포 재계산 | `python scripts/build_style_reference.py` |
 
 ## 설정 (src/config.py)
 
-- `VERIFY_MODEL` 검증 판정 모델. 하루 한도가 끝나면 `VERIFY_FALLBACK_MODEL`로 자동 대체(결과에 `judge_model`로 표시).
+- `VERIFY_MODEL` 검증 판정 모델. `VERIFY_FALLBACK_MODEL`(기본 None)을 정하면 판정 모델 한도가 끝났을 때 그 모델로 대체(결과에 `judge_model`로 표시). 유료 API는 None 권장.
 - `VERIFY_THINKING_LEVEL` 판정 모델의 생각 길이(`"low"`면 빠름, 지원 안 하는 모델이면 자동 무시).
-- `SIMILARITY_GUARD` 원문·번역문 임베딩 유사도 하한. `DEFAULT_MAX_RETRIES` 재번역 횟수(앱은 `app.py`의 `DEMO_MAX_RETRIES`).
+- `SIMILARITY_GUARD` 원문·번역문 임베딩 유사도 하한. `DEFAULT_MAX_RETRIES` 최대 재번역 횟수(앱·CLI·스크립트 공통, 기본 2).
 
 ## 레거시 (7주차)
 

@@ -31,9 +31,8 @@ CONDITIONS = {
 # 사이드바에서 "데모용 가짜 결과"를 켜면 API 호출 없이 화면만 확인할 수 있습니다.
 #
 # 속도: A·B·C를 동시에 실행(전체 대기 = 가장 느린 C), 검색은 한 번만 해서 B·C가 공유,
-#       Kiwi·스타일 프로필은 처음 한 번만 준비. C 재번역은 최대 DEMO_MAX_RETRIES회.
+#       Kiwi·스타일 프로필은 처음 한 번만 준비. C 재번역은 최대 config.DEFAULT_MAX_RETRIES회.
 # ==================================================
-DEMO_MAX_RETRIES = 1
 
 
 @st.cache_resource(show_spinner=False)
@@ -59,8 +58,9 @@ def translate(korean_text, user, condition, examples=None):
         from src.baselines import translate_in_context
         return {"text": translate_in_context(korean_text, user, examples=examples), "info": "", "detail": None}
     from src.pipeline import translate_with_verification
+    from src import config
     result = translate_with_verification(
-        korean_text, load_style_profile(user), user, max_retries=DEMO_MAX_RETRIES, examples=examples,
+        korean_text, load_style_profile(user), user, max_retries=config.DEFAULT_MAX_RETRIES, examples=examples,
     )
     info = f"검증 {result['verdict']} · Meaning {result['meaning_score']:.0f} · 시도 {result['attempts']}회"
     if result["attempts"] > 1:
@@ -217,7 +217,7 @@ def main():
         st.header("설정")
         persona = st.radio("누구 말투로 번역할까요?", list(PERSONAS))
         use_dummy = st.toggle("데모용 가짜 결과 (API 호출 안 함)", value=False,
-                              help="API 키가 없거나 무료 한도를 다 썼을 때 화면 확인용")
+                              help="API 키 없이 화면만 확인할 때")
         corpus = load_corpus(persona)
         if corpus:
             st.caption(f"{persona}의 실제 영어 글 {len(tokenize(corpus))}단어를 기준으로 비교합니다.")

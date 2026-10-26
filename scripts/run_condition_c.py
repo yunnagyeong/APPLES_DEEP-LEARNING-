@@ -2,8 +2,7 @@
 
 사용법 (프로젝트 루트): python scripts/run_condition_c.py --user ganghee [--retries 2] [--out results/v2]
 - 7주차 결과(results/week7)는 레거시 검증으로 만든 것이라 덮어쓰지 않도록 기본 출력 폴더가 results/v2입니다.
-- 무료 티어: 문장당 판정 모델(VERIFY_MODEL) 1~3회. 하루 한도가 끝나면 config.VERIFY_FALLBACK_MODEL로 자동 대체되고
-  결과의 judge_model 열에 기록됩니다.
+- 문장당 API: 번역 생성 1~3회 + 판정(VERIFY_MODEL) 1~3회 + 임베딩 2~4회. --workers개 문장을 동시에 처리.
 """
 import argparse
 import csv
@@ -26,6 +25,7 @@ ap.add_argument("--user", default="ganghee")
 ap.add_argument("--retries", type=int, default=2)
 ap.add_argument("--out", default="results/v2")
 ap.add_argument("--input", default="data/measure/team_evaluation.jsonl")
+ap.add_argument("--workers", type=int, default=4, help="동시에 처리할 문장 수")
 ARGS = ap.parse_args()
 
 USER = ARGS.user
@@ -79,65 +79,47 @@ def save_csv(path, rows, fields):
         writer.writerows(rows)
 
 
+def run_case(case, profile):
+    try:
+        result = translate_with_verification(
+            korean_text=case["source"], style_profile=profile, user=USER, max_retries=MAX_RETRIES,
+        )
+        return {
+            "id": case["id"], "condition": "C", "source": case["source"],
+            "translation": result["translation"], "verdict": result["verdict"],
+            "meaning_score": result.get("meaning_score"),
+            "meaning_score_method": result.get("meaning_score_method"),
+            "issues": "; ".join(f"{i['severity']}:{i['type']}" for i in result.get("issues", [])),
+            "attempts": result.get("attempts"), "best_attempt": result.get("best_attempt"),
+            "judge_model": result.get("judge_model"), "error": "",
+        }
+    except Exception as exc:
+        return {
+            "id": case["id"], "condition": "C", "source": case["source"], "translation": "",
+            "verdict": "ERROR", "meaning_score": "", "meaning_score_method": "", "issues": "",
+            "attempts": "", "best_attempt": "", "judge_model": "",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
 def main():
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     cases = load_cases()
     profile = _load_or_compute_style_profile(USER)
-
+    order = {str(c["id"]): i for i, c in enumerate(cases)}
     rows = []
 
-    for index, case in enumerate(cases, 1):
-        print(f"\n[C] {index}/{len(cases)} | {case['id']}")
-
-        try:
-            result = translate_with_verification(
-                korean_text=case["source"],
-                style_profile=profile,
-                user=USER,
-                max_retries=MAX_RETRIES,
-            )
-
-            row = {
-                "id": case["id"],
-                "condition": "C",
-                "source": case["source"],
-                "translation": result["translation"],
-                "verdict": result["verdict"],
-                "meaning_score": result.get("meaning_score"),
-                "meaning_score_method": result.get("meaning_score_method"),
-                "issues": "; ".join(
-                    f"{i['severity']}:{i['type']}" for i in result.get("issues", [])
-                ),
-                "attempts": result.get("attempts"),
-                "best_attempt": result.get("best_attempt"),
-                "judge_model": result.get("judge_model"),
-                "error": "",
-            }
-
-        except Exception as exc:
-            row = {
-                "id": case["id"],
-                "condition": "C",
-                "source": case["source"],
-                "translation": "",
-                "verdict": "ERROR",
-                "meaning_score": "",
-                "meaning_score_method": "",
-                "issues": "",
-                "attempts": "",
-                "best_attempt": "",
-                "judge_model": "",
-                "error": f"{type(exc).__name__}: {exc}",
-            }
-
-        rows.append(row)
-
-        # 중간에 중단되어도 이전 결과 보존
-        save_csv(RESULT_PATH, rows, list(row.keys()))
-
-        print(
-            f"Verdict={row['verdict']} | "
-            f"Score={row['meaning_score']}"
-        )
+    # 문장 여러 개를 동시에 처리(--workers). 끝나는 대로 저장하되 파일은 원래 순서로 정렬.
+    with ThreadPoolExecutor(max_workers=max(1, ARGS.workers)) as pool:
+        futures = [pool.submit(run_case, c, profile) for c in cases]
+        for n, fut in enumerate(as_completed(futures), 1):
+            row = fut.result()
+            rows.append(row)
+            rows.sort(key=lambda r: order[str(r["id"])])
+            save_csv(RESULT_PATH, rows, list(row.keys()))  # 중간에 중단돼도 끝난 결과는 보존
+            print(f"[C] {n}/{len(cases)} | #{row['id']} Verdict={row['verdict']} | Score={row['meaning_score']}"
+                  + (f" | {row['error']}" if row["error"] else ""))
 
     scores = [
         float(row["meaning_score"])
