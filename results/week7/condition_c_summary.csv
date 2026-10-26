@@ -1,0 +1,2 @@
+﻿condition,total,scored,mean,median,std,min,max,pass,review,fail,error,similarity_only
+C,32,32,97.0803125,98.17,4.403411056380224,74.4,99.03,31,1,0,0,2

@@ -208,28 +208,49 @@ def build_failure_reasons(claim_results: dict) -> list[dict]:
     return failure_reasons
 
 
+
 def verify_translation(
     source_text: str,
     translated_text: str
 ) -> dict:
-
     similarity = semantic_similarity(
-        source_text,
-        translated_text
+        source_text, translated_text
     )
 
     claim_results = verify_claims(
-        source_text,
-        translated_text
+        source_text, translated_text
     )
 
-    failure_reasons = build_failure_reasons(
-        claim_results
-    )
+    failure_reasons = build_failure_reasons(claim_results)
 
-    verdict, critical_errors = determine_verdict(
+    # 기존 NLI 판정
+    nli_verdict, critical_errors = determine_verdict(
         failure_reasons
     )
+
+    # Gemini 보조 검증
+    nuance = check_semantic_nuance(
+        source_text, translated_text
+    )
+
+    # Gemini가 의미 오류를 발견한 경우
+    if nuance["has_meaning_error"]:
+        failure_reasons.append({
+            "type": "SEMANTIC_NUANCE",
+            "direction": "source_to_translation",
+            "claim": nuance["explanation"],
+            "label": "gemini_review",
+            "confidence": None,
+            "error_types": nuance["error_types"]
+        })
+
+    # 기존 FAIL은 유지하고, Gemini가 오류를 발견하면 REVIEW
+    if nli_verdict == "FAIL":
+        verdict = "FAIL"
+    elif failure_reasons:
+        verdict = "REVIEW"
+    else:
+        verdict = "PASS"
 
     return {
         "semantic_similarity": similarity,
@@ -237,7 +258,8 @@ def verify_translation(
         "translation_claims": claim_results["translation_claims"],
         "failure_reasons": failure_reasons,
         "critical_errors": critical_errors,
-        "verdict": verdict
+        "verdict": verdict,
+        "semantic_nuance": nuance
     }
 
 def determine_verdict(failure_reasons: list[dict]) -> tuple[str, list[dict]]:
@@ -255,3 +277,107 @@ def determine_verdict(failure_reasons: list[dict]) -> tuple[str, list[dict]]:
         verdict = "PASS"
 
     return verdict, critical_errors
+
+
+def check_semantic_nuance(
+    source_text: str,
+    translated_text: str
+) -> dict:
+    """
+    NLI가 놓치기 쉬운 의미 변화 확인.
+    특히 헤징, 확신 정도, 시제, 부정, 조건, 수치 등을 검증.
+    """
+
+    prompt = f"""
+You are a bilingual Korean-English translation evaluator.
+
+Evaluate whether the English translation preserves the
+meaning of the Korean source.
+
+Focus ONLY on meaning preservation, not fluency or style.
+
+
+IMPORTANT EVALUATION PRINCIPLES:
+
+Evaluate semantic equivalence, not word-for-word similarity.
+
+Do NOT flag:
+- Natural paraphrasing that preserves the original meaning.
+- Minor emphasis or discourse modifiers that do not materially
+  change the meaning.
+- Words absent from the source that introduce no new factual claim.
+
+DO flag:
+- Unsupported factual claims, explanations, or justifications.
+- Changes in modality or certainty (may, might, must, inevitably).
+- Changes in negation, tense, conditions, comparisons, or numbers
+  that alter the original meaning.
+- Omissions of meaningful information.
+
+UNSUPPORTED ADDITION CRITERION:
+
+An unsupported addition must introduce materially new semantic
+content, not merely a word absent from the source.
+
+Distinguish harmless lexical elaboration from the introduction
+of a new proposition, causal explanation, or factual assertion.
+
+When uncertain, do not automatically classify a minor wording
+difference as an error.
+
+Check carefully:
+1. Modality and certainty (may, might, must, inevitably)
+2. Subjectivity and attribution (I think, it seems)
+3. Negation
+4. Tense and temporal reference
+5. Conditions and comparisons
+6. Numbers and named entities
+7. Unsupported additions and omissions
+
+Return ONLY valid JSON:
+{{
+  "has_meaning_error": true,
+  "error_types": ["MODALITY_SHIFT"],
+  "explanation": "Briefly explain the error in Korean."
+}}
+
+If no meaning error exists, return:
+{{
+  "has_meaning_error": false,
+  "error_types": [],
+  "explanation": ""
+}}
+
+Korean source:
+{source_text}
+
+English translation:
+{translated_text}
+"""
+
+    response = call_with_retry(
+        lambda: client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=prompt
+        ),
+        label="semantic nuance check"
+    )
+
+    raw = response.text.strip()
+
+    if raw.startswith("```json"):
+        raw = raw[7:]
+    if raw.startswith("```"):
+        raw = raw[3:]
+    if raw.endswith("```"):
+        raw = raw[:-3]
+
+    result = json.loads(raw.strip())
+
+    return {
+        "has_meaning_error": bool(
+            result.get("has_meaning_error", False)
+        ),
+        "error_types": result.get("error_types", []),
+        "explanation": result.get("explanation", "")
+    }

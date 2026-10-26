@@ -132,33 +132,52 @@ failure_reasons를 프롬프트에 구체적으로 넣어서 재번역합니다.
 DEFAULT_MAX_RETRIES = 2
 
 
+
 def _format_failure_reasons(failure_reasons: list[dict]) -> str:
-    """verify.py의 failure_reasons를 모델이 이해할 수 있는 지시문으로 변환."""
+    """Verification 오류를 재번역 모델이 이해할 수 있는 지시문으로 변환."""
     lines = []
+
     for reason in failure_reasons:
         error_type = reason["type"]
         claim = reason["claim"]
 
         if error_type == "CONTRADICTION":
             lines.append(
-                f'- CONTRADICTION: the claim "{claim}" contradicts the meaning '
-                f"of the original text. Fix this so the meaning matches the source."
+                f'- CONTRADICTION: the claim "{claim}" contradicts '
+                f"the meaning of the original text. "
+                f"Correct the translation to match the source."
             )
+
         elif error_type == "UNSUPPORTED_ADDITION":
             lines.append(
                 f'- UNSUPPORTED ADDITION: your translation states "{claim}", '
-                f"but this is NOT present in the original text. Remove this "
-                f"and do not add explanations, justifications, or details that "
-                f"are not explicitly in the source."
+                f"but this is not supported by the original text. "
+                f"Remove unsupported explanations, justifications, "
+                f"and additional details."
             )
+
         elif error_type == "OMISSION_OR_UNSUPPORTED":
             lines.append(
-                f'- POSSIBLE OMISSION: the original claim "{claim}" does not '
-                f"appear to be reflected in your translation. Make sure this "
-                f"point is preserved."
+                f'- POSSIBLE OMISSION: the original claim "{claim}" '
+                f"may not be preserved in your translation. "
+                f"Ensure that this information is accurately reflected."
+            )
+
+        elif error_type == "SEMANTIC_NUANCE":
+            nuance_types = reason.get("error_types", [])
+            nuance_label = ", ".join(nuance_types) or "MEANING_SHIFT"
+
+            lines.append(
+                f'- SEMANTIC MEANING ERROR ({nuance_label}): '
+                f"{claim} "
+                f"Revise the translation to preserve the exact "
+                f"meaning of the source, including modality, "
+                f"certainty, tense, negation, and attribution. "
+                f"Do not introduce unsupported information."
             )
 
     return "\n".join(lines)
+
 
 
 def _retranslate_with_feedback(
@@ -282,10 +301,29 @@ def translate_with_verification(
             user,
         )
 
+    
+    # 마지막 검증 결과를 기준으로 Meaning Score 계산
+    from .meaning_score import calculate_meaning_score
+
+    final_verification = history[-1]
+    meaning_result = calculate_meaning_score(final_verification)
+
     return {
         "translation": translation,
-        "verdict": history[-1]["verdict"],
+        "verdict": final_verification["verdict"],
         "attempts": len(history),
         "verification_history": history,
         "notice": notice,
+
+        # Meaning Score
+        "meaning_score": meaning_result["meaning_score"],
+        "meaning_score_method": meaning_result["score_method"],
+        "meaning_score_status": meaning_result["status"],
+        "meaning_components": {
+            "semantic_similarity": meaning_result["semantic_similarity"],
+            "claim_coverage": meaning_result["claim_coverage"],
+            "translation_support_rate": meaning_result["translation_support_rate"],
+            "contradiction_rate": meaning_result["contradiction_rate"],
+        },
+        "semantic_nuance_error": meaning_result["semantic_nuance_error"],
     }
