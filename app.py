@@ -1,809 +1,271 @@
-import streamlit as st
+import json
+import re
+import time
+from pathlib import Path
+
 import pandas as pd
 import plotly.express as px
-from nltk.tokenize import word_tokenize
-from collections import Counter
-
-
-# ==================================================
-# Page Configuration
-# ==================================================
+import streamlit as st
 
 st.set_page_config(
-    page_title="Personalized Translation & Style Profile Benchmark",
-    layout="wide"
+    page_title="Personalized Translation & AI Uniformity Benchmark",
+    layout="wide",
 )
 
-
-# ==================================================
-# AI Cliche Lexicon
-# ==================================================
-
-ENGLISH_AI_CLICHES = {
-
-    "transitions": [
-        "furthermore",
-        "moreover",
-        "in addition",
-        "additionally",
-        "notably",
-        "consequently",
-        "subsequently",
-        "it is worth noting that",
-        "it is noteworthy that",
-        "importantly",
-        "in summary",
-        "to summarize",
-        "in conclusion",
-        "all in all",
-        "ultimately",
-        "moving forward"
-    ],
-
-    "hedging_and_boosters": [
-        "plays a crucial role",
-        "vital to consider",
-        "delve into",
-        "testament to",
-        "foster",
-        "pivotal",
-        "beacon"
-    ],
-
-    "elevated_modifiers": [
-        "pivotal",
-        "crucial",
-        "vital",
-        "paramount",
-        "essential",
-        "indispensable",
-        "multifaceted",
-        "nuanced",
-        "intricate",
-        "meticulous",
-        "comprehensive",
-        "robust",
-        "dynamic",
-        "vibrant",
-        "seamless",
-        "transformative",
-        "groundbreaking"
-    ]
+ROOT = Path(__file__).parent
+EVAL_DIR = ROOT / "data" / "eval"   # 팀원 실제 영어 글: english_<user>.jsonl
+PERSONAS = {"나경": "nakyung", "강희": "ganghee", "수영": "suyoung"}
+CONDITIONS = {
+    "A": "A · 일반 번역",
+    "B": "B · 단순 개인화 (RAG)",
+    "C": "C · 우리 팀 방법",
 }
 
 
 # ==================================================
-# 모든 AI Cliche 표현 하나의 리스트로 만들기
+# 번역기 연결 (src/ 파이프라인)
+#   A: src.baselines.translate_zero_shot
+#   B: src.baselines.translate_in_context
+#   C: src.pipeline.translate_with_verification  (Style Profile + RAG + NLI 검증·재번역)
+# 사이드바에서 "데모용 가짜 결과"를 켜면 API 호출 없이 화면만 확인할 수 있습니다.
 # ==================================================
-
-def get_all_cliches():
-
-    cliches = []
-
-    for category in ENGLISH_AI_CLICHES.values():
-        cliches.extend(category)
-
-    # 중복 제거
-    return list(set(cliches))
+@st.cache_resource(show_spinner=False)
+def load_style_profile(user):
+    from src.pipeline import _load_or_compute_style_profile
+    return _load_or_compute_style_profile(user)
 
 
-ALL_AI_CLICHES = get_all_cliches()
+def translate(korean_text, user, condition):
+    """번역 결과 dict: {"text": 영어 번역, "info": 화면에 덧붙일 짧은 설명}"""
+    if condition == "A":
+        from src.baselines import translate_zero_shot
+        return {"text": translate_zero_shot(korean_text), "info": ""}
+    if condition == "B":
+        from src.baselines import translate_in_context
+        return {"text": translate_in_context(korean_text, user), "info": ""}
+    from src.pipeline import translate_with_verification
+    result = translate_with_verification(korean_text, load_style_profile(user), user)
+    info = f"검증 {result['verdict']} · 시도 {result['attempts']}회"
+    if result.get("notice"):
+        info += f" · {result['notice']}"
+    return {"text": result["translation"], "info": info}
 
 
-# ==================================================
-# AI 획일화 지표 ①
-# AI Cliche Count
-# ==================================================
-
-def calculate_cliche_count(text):
-
-    if not text or not text.strip():
-        return 0
-
-    text_lower = text.lower()
-
-    count = 0
-
-    for phrase in ALL_AI_CLICHES:
-        count += text_lower.count(
-            phrase.lower()
-        )
-
-    return count
-
-
-# ==================================================
-# AI 획일화 지표 ②
-# AI Cliche Rate
-# ==================================================
-
-def calculate_cliche_rate(text):
-
-    if not text or not text.strip():
-        return 0.0
-
-    words = word_tokenize(
-        text.lower()
-    )
-
-    # 영어 단어만 사용
-    words = [
-        word
-        for word in words
-        if word.isalpha()
-    ]
-
-    if len(words) == 0:
-        return 0.0
-
-    cliche_count = calculate_cliche_count(
-        text
-    )
-
-    return cliche_count / len(words)
+# 파이프라인 연결 전/API 한도 소진 시 화면 확인용 가짜 결과
+DUMMY_SOURCE = "요즘 AI가 만드는 글이 다 비슷비슷해지고 있다. 개인화 번역은 사람마다 자기 말투로 번역되게 해서 이 문제를 줄이려는 방법이다."
+DUMMY_OUTPUTS = {
+    "A": "Moreover, AI-generated content is becoming increasingly homogenous. "
+         "Personalized translation plays a crucial role in fostering a more seamless and "
+         "authentic voice for each individual.",
+    "B": "These days, AI writing is getting really similar. Personalized translation "
+         "tries to fix this by translating in each person's own way of speaking.",
+    "C": "AI writing all sounds the same these days. Personalized translation tries to "
+         "fix that, so each person's text comes out in their own voice.",
+}
 
 
 # ==================================================
-# AI 획일화 지표 ③
-# Lexical Diversity
+# AI 클리셰 사전
 # ==================================================
-
-def calculate_lexical_diversity(text):
-
-    if not text or not text.strip():
-        return 0.0
-
-    words = word_tokenize(
-        text.lower()
-    )
-
-    words = [
-        word
-        for word in words
-        if word.isalpha()
-    ]
-
-    if len(words) == 0:
-        return 0.0
-
-    unique_words = len(
-        set(words)
-    )
-
-    return unique_words / len(words)
+ENGLISH_AI_CLICHES = {
+    "transitions": [
+        "furthermore", "moreover", "in addition", "additionally", "notably",
+        "consequently", "subsequently", "it is worth noting that",
+        "it is noteworthy that", "importantly", "in summary", "to summarize",
+        "in conclusion", "all in all", "ultimately", "moving forward",
+    ],
+    "hedging_and_boosters": [
+        "plays a crucial role", "play a crucial role", "vital to consider",
+        "delve into", "delves into", "delving into", "testament to",
+        "foster", "fosters", "fostering", "pivotal", "beacon",
+    ],
+    "elevated_modifiers": [
+        "crucial", "vital", "paramount", "essential", "indispensable",
+        "multifaceted", "nuanced", "intricate", "meticulous", "comprehensive",
+        "robust", "dynamic", "vibrant", "seamless", "transformative",
+        "groundbreaking",
+    ],
+}
+try:  # 팀 공용 사전(evaluate_metrics.py)이 있으면 그것을 사용해 평가 스크립트와 기준을 맞춤
+    from evaluate_metrics import ENGLISH_AI_CLICHES  # noqa: F811
+except Exception:
+    pass
+ALL_AI_CLICHES = sorted({p for ps in ENGLISH_AI_CLICHES.values() for p in ps},
+                        key=len, reverse=True)   # 긴 표현부터 매칭
+# 단어 경계(\b)로 매칭: "vital"이 "revitalize" 안에서 잡히는 오류 방지
+CLICHE_RE = re.compile(r"\b(?:" + "|".join(map(re.escape, ALL_AI_CLICHES)) + r")\b",
+                       re.IGNORECASE)
 
 
 # ==================================================
-# 어떤 클리셰가 등장했는지 확인
+# 지표 계산 (nltk 없이 동작)
 # ==================================================
+def tokenize(text):
+    return re.findall(r"[a-z]+(?:'[a-z]+)?", str(text).lower())
+
 
 def find_cliches(text):
-
-    if not text:
-        return []
-
-    text_lower = text.lower()
-
-    found = []
-
-    for phrase in ALL_AI_CLICHES:
-
-        if phrase.lower() in text_lower:
-
-            found.append(phrase)
-
-    return found
+    return [m.group().lower() for m in CLICHE_RE.finditer(str(text))]
 
 
-# ==================================================
-# Dummy Generation Data
-# ==================================================
+def cliche_rate(text):
+    """상투어구가 차지하는 단어 비율(%)"""
+    words = tokenize(text)
+    if not words:
+        return 0.0
+    cliche_words = sum(len(tokenize(c)) for c in find_cliches(text))
+    return 100.0 * cliche_words / len(words)
 
-DUMMY_GENERATION_RESULT = {
 
-    # 영어 원문
-    "source_text":
-        "AI models are increasingly generating homogenous content. "
-        "Personalized translation approaches aim to alleviate this "
-        "uniformity by adapting outputs to individual stylistic signatures.",
+def lexical_diversity(text):
+    words = tokenize(text)
+    return len(set(words)) / len(words) if words else 0.0
 
-    # 일반 번역
-    "standard_translation":
-        "AI 모델은 점차 획일화된 콘텐츠를 생성하고 있습니다. "
-        "개인화된 번역 접근 방식은 출력을 개별 스타일 서명에 맞게 "
-        "조정하여 이러한 획일성을 완화하는 것을 목표로 합니다.",
 
-    # 개인화 번역
-    "personalized_translation":
-        "생성형 AI 모델이 내놓는 결과물이 갈수록 비슷비슷해지고 있죠. "
-        "맞춤형 번역 기법은 사용자의 고유한 어조와 문체를 반영함으로써 "
-        "이러한 획일화 현상을 효과적으로 해소합니다."
-}
+def avg_sentence_length(text):
+    sents = [s for s in re.split(r"(?<=[.!?])\s+", str(text).strip()) if tokenize(s)]
+    return sum(len(tokenize(s)) for s in sents) / len(sents) if sents else 0.0
+
+
+def length_match(text, ref_len):
+    """사용자 평균 문장 길이와 얼마나 비슷한지 (1에 가까울수록 비슷)"""
+    if not ref_len:
+        return 0.0
+    return max(0.0, 1 - abs(avg_sentence_length(text) - ref_len) / ref_len)
+
+
+@st.cache_data
+def load_corpus(persona):
+    """data/eval/english_<user>.jsonl 의 text를 모두 이어 붙인 실제 영어 글"""
+    path = EVAL_DIR / f"english_{PERSONAS[persona]}.jsonl"
+    if not path.exists():
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return "\n".join(json.loads(line)["text"] for line in f if line.strip())
 
 
 # ==================================================
-# 비교용 영어 텍스트
-#
-# 실제 Generation 모듈 연결 전까지 테스트용
+# 화면
 # ==================================================
-
-DUMMY_STANDARD_ENGLISH = (
-    "AI models are increasingly generating homogenous content. "
-    "Furthermore, it is important to note that these models "
-    "play a crucial role in shaping modern communication. "
-    "Moreover, this phenomenon is particularly significant."
-)
-
-
-DUMMY_PERSONALIZED_ENGLISH = (
-    "AI models are producing increasingly similar content. "
-    "These outputs can make different writers sound alike. "
-    "A personalized approach instead adapts the wording "
-    "to the writer's own style."
-)
-
-
-# ==================================================
-# 기존 Verification Dummy Data
-# ==================================================
-
-DUMMY_VERIFICATION_RESULT = {
-
-    "sentence_length_avg": {
-        "Standard": 5.5,
-        "Personalized": 7.67
-    },
-
-    "formality_score": {
-        "Standard": 1.0,
-        "Personalized": 1.0
-    },
-
-    "directness_score": {
-        "Standard": 0.0,
-        "Personalized": 0.0
-    },
-
-    "logical_connective_rate": {
-        "Standard": 0.50,
-        "Personalized": 0.33
-    },
-
-    "hedging_rate": {
-        "Standard": 0.0,
-        "Personalized": 0.0
-    },
-
-    "example_usage_rate": {
-        "Standard": 0.0,
-        "Personalized": 0.0
-    }
-}
-
-
-# ==================================================
-# Main UI
-# ==================================================
-
 def main():
+    st.title("Personalized Translation & AI Uniformity Benchmark")
+    st.caption("한국어 → 영어 개인화 번역 비교 및 AI 획일화 정량 지표 대시보드")
 
-    st.title(
-        "Personalized Translation & AI Uniformity Benchmark"
-    )
+    with st.sidebar:
+        st.header("설정")
+        persona = st.radio("누구 말투로 번역할까요?", list(PERSONAS))
+        use_dummy = st.toggle("데모용 가짜 결과 (API 호출 안 함)", value=False,
+                              help="API 키가 없거나 무료 한도를 다 썼을 때 화면 확인용")
+        corpus = load_corpus(persona)
+        if corpus:
+            st.caption(f"{persona}의 실제 영어 글 {len(tokenize(corpus))}단어를 기준으로 비교합니다.")
+        else:
+            st.warning(f"data/eval/english_{PERSONAS[persona]}.jsonl 이 없어 스타일 기준 비교를 건너뜁니다.")
 
-    st.caption(
-        "번역 비교 및 AI 획일화 정량 지표 분석 대시보드"
-    )
+    source = st.text_area("한국어 원문", value=DUMMY_SOURCE, height=120)
 
-    st.divider()
+    if st.button("번역 실행 및 지표 분석", type="primary", use_container_width=True):
+        results, errors = {}, {}
+        for c, label in CONDITIONS.items():
+            with st.spinner(f"{label} 번역 중... (C는 검증 때문에 10~60초 걸릴 수 있어요)"):
+                start = time.time()
+                try:
+                    if use_dummy:
+                        r = {"text": DUMMY_OUTPUTS[c], "info": "가짜 결과"}
+                    else:
+                        r = translate(source, PERSONAS[persona], c)
+                    r["info"] = (r["info"] + " · " if r["info"] else "") + f"{time.time() - start:.1f}초"
+                    results[c] = r
+                except BaseException as e:  # API 키 없음(sys.exit) 포함
+                    errors[c] = ("API 키 없음 (.env의 GOOGLE_API_KEY 확인)" if isinstance(e, SystemExit)
+                                 else f"{type(e).__name__}: {e}")
+        for c, msg in errors.items():
+            st.error(f"{CONDITIONS[c]} 실패 — {msg}  (사이드바에서 가짜 결과를 켜면 화면은 확인할 수 있어요)")
+        if len(results) == len(CONDITIONS):
+            st.session_state["outputs"] = {c: r["text"] for c, r in results.items()}
+            st.session_state["infos"] = {c: r["info"] for c, r in results.items()}
+            st.session_state["persona"] = persona
 
-
-    # ==================================================
-    # 1. 3열 번역 비교
-    # ==================================================
-
-    col1, col2, col3 = st.columns(3)
-
-
-    with col1:
-
-        st.subheader("원문")
-
-        source_input = st.text_area(
-            "원문",
-            value=DUMMY_GENERATION_RESULT["source_text"],
-            height=200,
-            label_visibility="collapsed"
-        )
-
-
-    with col2:
-
-        st.subheader("일반 번역")
-
-        standard_translation = st.text_area(
-            "일반 번역",
-            value=DUMMY_GENERATION_RESULT[
-                "standard_translation"
-            ],
-            height=200,
-            disabled=True,
-            label_visibility="collapsed"
-        )
-
-
-    with col3:
-
-        st.subheader("Personalized Translation")
-
-        personalized_translation = st.text_area(
-            "개인화 번역",
-            value=DUMMY_GENERATION_RESULT[
-                "personalized_translation"
-            ],
-            height=200,
-            disabled=True,
-            label_visibility="collapsed"
-        )
-
-
-    # ==================================================
-    # 2. 실행 버튼
-    # ==================================================
-
-    st.write("")
-
-    run_button = st.button(
-        "번역 지표 측정 및 AI 획일화 분석 실행",
-        type="primary",
-        use_container_width=True
-    )
+    outputs = st.session_state.get("outputs")
+    if not outputs:
+        st.info("원문을 입력하고 버튼을 눌러 주세요.")
+        return
+    persona = st.session_state["persona"]
+    corpus = load_corpus(persona)
 
     st.divider()
+    cols = st.columns(3)
+    for col, (c, label) in zip(cols, CONDITIONS.items()):
+        with col:
+            st.subheader(label)
+            st.text_area(label, outputs[c], height=180, disabled=True,
+                         label_visibility="collapsed")
+            st.caption(st.session_state.get("infos", {}).get(c, ""))
 
-
-    # ==================================================
-    # 3. 실행
-    # ==================================================
-
-    if run_button:
-
-        st.header(
-            "AI 획일화 정량 지표"
-        )
-
-
-        # ==================================================
-        # 실제 AI 획일화 계산
-        # ==================================================
-
-        standard_cliche_count = (
-            calculate_cliche_count(
-                DUMMY_STANDARD_ENGLISH
-            )
-        )
-
-        personalized_cliche_count = (
-            calculate_cliche_count(
-                DUMMY_PERSONALIZED_ENGLISH
-            )
-        )
-
-
-        standard_cliche_rate = (
-            calculate_cliche_rate(
-                DUMMY_STANDARD_ENGLISH
-            )
-        )
-
-        personalized_cliche_rate = (
-            calculate_cliche_rate(
-                DUMMY_PERSONALIZED_ENGLISH
-            )
-        )
-
-
-        standard_diversity = (
-            calculate_lexical_diversity(
-                DUMMY_STANDARD_ENGLISH
-            )
-        )
-
-        personalized_diversity = (
-            calculate_lexical_diversity(
-                DUMMY_PERSONALIZED_ENGLISH
-            )
-        )
-
-
-        # ==================================================
-        # 발견된 클리셰
-        # ==================================================
-
-        standard_found = find_cliches(
-            DUMMY_STANDARD_ENGLISH
-        )
-
-        personalized_found = find_cliches(
-            DUMMY_PERSONALIZED_ENGLISH
-        )
-
-
-        # ==================================================
-        # 핵심 KPI
-        # ==================================================
-
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-
-
-        with kpi1:
-
-            st.metric(
-                "Standard Cliche",
-                standard_cliche_count
-            )
-
-
-        with kpi2:
-
-            st.metric(
-                "Personalized Cliche",
-                personalized_cliche_count
-            )
-
-
-        with kpi3:
-
-            st.metric(
-                "Standard Lexical Diversity",
-                f"{standard_diversity:.2f}"
-            )
-
-
-        with kpi4:
-
-            st.metric(
-                "Personalized Lexical Diversity",
-                f"{personalized_diversity:.2f}"
-            )
-
-
-        # ==================================================
-        # AI 획일화 데이터
-        # ==================================================
-
-        uniformity_df = pd.DataFrame({
-
-            "Metric": [
-                "AI Cliche Rate",
-                "Lexical Diversity"
-            ],
-
-            "Standard": [
-                standard_cliche_rate,
-                standard_diversity
-            ],
-
-            "Personalized": [
-                personalized_cliche_rate,
-                personalized_diversity
-            ]
+    # ---------------- 지표 표
+    ref_len = avg_sentence_length(corpus) if corpus else 0.0
+    rows = []
+    for c, label in CONDITIONS.items():
+        t = outputs[c]
+        rows.append({
+            "조건": label,
+            "AI 클리셰 비율(%)": cliche_rate(t),
+            "어휘 다양도(TTR)": lexical_diversity(t),
+            "평균 문장 길이": avg_sentence_length(t),
+            "문장 길이 일치도": length_match(t, ref_len) if corpus else None,
         })
-
-
-        # ==================================================
-        # 기존 Verification + AI 획일화
-        # ==================================================
-
-        metrics_data = []
-
-
-        for metric_name, values in (
-            DUMMY_VERIFICATION_RESULT.items()
-        ):
-
-            metrics_data.append({
-
-                "Metric": metric_name,
-
-                "Standard":
-                    values.get(
-                        "Standard",
-                        0.0
-                    ),
-
-                "Personalized":
-                    values.get(
-                        "Personalized",
-                        0.0
-                    )
-            })
-
-
-        metrics_data.append({
-
-            "Metric":
-                "AI Cliche Rate",
-
-            "Standard":
-                standard_cliche_rate,
-
-            "Personalized":
-                personalized_cliche_rate
+    if corpus:
+        rows.append({
+            "조건": f"참고 · {persona} 실제 글",
+            "AI 클리셰 비율(%)": cliche_rate(corpus),
+            "어휘 다양도(TTR)": None,   # 길이가 달라 TTR 직접 비교는 부적절
+            "평균 문장 길이": ref_len,
+            "문장 길이 일치도": 1.0,
         })
+    df = pd.DataFrame(rows)
+
+    st.header("AI 획일화 및 스타일 지표")
+    k1, k2, k3 = st.columns(3)
+    k1.metric("C 클리셰 비율", f"{df.iloc[2]['AI 클리셰 비율(%)']:.1f}%",
+              f"{df.iloc[2]['AI 클리셰 비율(%)'] - df.iloc[0]['AI 클리셰 비율(%)']:+.1f}%p vs A",
+              delta_color="inverse")
+    k2.metric("C 어휘 다양도", f"{df.iloc[2]['어휘 다양도(TTR)']:.2f}",
+              f"{df.iloc[2]['어휘 다양도(TTR)'] - df.iloc[0]['어휘 다양도(TTR)']:+.2f} vs A")
+    if corpus:
+        k3.metric(f"C 문장 길이 일치도 ({persona} 기준)", f"{df.iloc[2]['문장 길이 일치도']:.2f}",
+                  f"{df.iloc[2]['문장 길이 일치도'] - df.iloc[0]['문장 길이 일치도']:+.2f} vs A")
+
+    tab1, tab2, tab3 = st.tabs(["지표 시각화", "데이터 상세 표", "AI 클리셰 분석"])
+
+    with tab1:
+        colors = {CONDITIONS["A"]: "#B0BEC5", CONDITIONS["B"]: "#90CAF9",
+                  CONDITIONS["C"]: "#1565C0", f"참고 · {persona} 실제 글": "#FFB74D"}
+        g1, g2 = st.columns(2)
+        with g1:
+            fig = px.bar(df, x="조건", y="AI 클리셰 비율(%)", color="조건",
+                         color_discrete_map=colors, text_auto=".1f",
+                         title="AI 클리셰 비율 (낮을수록 좋음)")
+            fig.update_layout(showlegend=False, xaxis_title="")
+            st.plotly_chart(fig, use_container_width=True)
+        with g2:
+            if corpus:
+                fig = px.bar(df, x="조건", y="평균 문장 길이", color="조건",
+                             color_discrete_map=colors, text_auto=".1f",
+                             title=f"평균 문장 길이 ({persona} 실제 글에 가까울수록 좋음)")
+                fig.update_layout(showlegend=False, xaxis_title="")
+                st.plotly_chart(fig, use_container_width=True)
+
+    with tab2:
+        st.dataframe(df.set_index("조건").round(3), use_container_width=True)
+
+    with tab3:
+        for c, label in CONDITIONS.items():
+            found = find_cliches(outputs[c])
+            st.markdown(f"**{label}**: " + (", ".join(sorted(set(found))) if found else "탐지된 클리셰 없음"))
+        with st.expander("현재 사용 중인 클리셰 사전"):
+            for category, phrases in ENGLISH_AI_CLICHES.items():
+                st.markdown(f"**{category}**: " + ", ".join(phrases))
 
-
-        metrics_data.append({
-
-            "Metric":
-                "Lexical Diversity",
-
-            "Standard":
-                standard_diversity,
-
-            "Personalized":
-                personalized_diversity
-        })
-
-
-        df = pd.DataFrame(
-            metrics_data
-        )
-
-
-        # ==================================================
-        # 탭
-        # ==================================================
-
-        tab1, tab2, tab3 = st.tabs([
-            "지표 시각화",
-            "데이터 상세 표",
-            "AI 클리셰 분석"
-        ])
-
-
-        # ==================================================
-        # TAB 1
-        # ==================================================
-
-        with tab1:
-
-            st.markdown(
-                "##### AI 획일화 및 스타일 지표"
-            )
-
-
-            df_long = pd.melt(
-
-                df,
-
-                id_vars=["Metric"],
-
-                value_vars=[
-                    "Standard",
-                    "Personalized"
-                ],
-
-                var_name="Type",
-
-                value_name="Score"
-            )
-
-
-            # 문장 길이 제외
-            df_rates = df_long[
-                df_long["Metric"]
-                != "sentence_length_avg"
-            ]
-
-
-            df_length = df_long[
-                df_long["Metric"]
-                == "sentence_length_avg"
-            ]
-
-
-            chart_col1, chart_col2 = (
-                st.columns([2, 1])
-            )
-
-
-            with chart_col1:
-
-                st.markdown(
-                    "##### 비율 및 점수 지표"
-                )
-
-
-                fig_rates = px.bar(
-
-                    df_rates,
-
-                    x="Metric",
-
-                    y="Score",
-
-                    color="Type",
-
-                    barmode="group",
-
-                    color_discrete_map={
-                        "Standard": "#90CAF9",
-                        "Personalized": "#1565C0"
-                    },
-
-                    text_auto=".2f"
-                )
-
-
-                fig_rates.update_layout(
-
-                    xaxis_title="",
-
-                    yaxis_title="Score",
-
-                    legend_title="",
-
-                    xaxis_tickangle=-35,
-
-                    yaxis_range=[0, 1],
-
-                    height=430,
-
-                    margin=dict(
-                        l=20,
-                        r=20,
-                        t=30,
-                        b=100
-                    )
-                )
-
-
-                st.plotly_chart(
-                    fig_rates,
-                    use_container_width=True
-                )
-
-
-            with chart_col2:
-
-                st.markdown(
-                    "##### 평균 문장 길이"
-                )
-
-
-                fig_length = px.bar(
-
-                    df_length,
-
-                    x="Metric",
-
-                    y="Score",
-
-                    color="Type",
-
-                    barmode="group",
-
-                    color_discrete_map={
-                        "Standard": "#90CAF9",
-                        "Personalized": "#1565C0"
-                    },
-
-                    text_auto=".2f"
-                )
-
-
-                fig_length.update_layout(
-
-                    xaxis_title="",
-
-                    yaxis_title="어절/단어 수",
-
-                    legend_title="",
-
-                    height=430
-                )
-
-
-                st.plotly_chart(
-                    fig_length,
-                    use_container_width=True
-                )
-
-
-        # ==================================================
-        # TAB 2
-        # ==================================================
-
-        with tab2:
-
-            st.markdown(
-                "##### 정량 지표 비교 데이터"
-            )
-
-            st.dataframe(
-                df.set_index("Metric"),
-                use_container_width=True
-            )
-
-
-        # ==================================================
-        # TAB 3
-        # ==================================================
-
-        with tab3:
-
-            st.markdown(
-                "##### 실제 탐지된 AI 클리셰"
-            )
-
-
-            st.markdown(
-                "**Standard**"
-            )
-
-            if standard_found:
-
-                for phrase in standard_found:
-
-                    st.write(
-                        f"- {phrase}"
-                    )
-
-            else:
-
-                st.write(
-                    "탐지된 클리셰 없음"
-                )
-
-
-            st.divider()
-
-
-            st.markdown(
-                "**Personalized**"
-            )
-
-
-            if personalized_found:
-
-                for phrase in personalized_found:
-
-                    st.write(
-                        f"- {phrase}"
-                    )
-
-            else:
-
-                st.write(
-                    "탐지된 클리셰 없음"
-                )
-
-
-            st.divider()
-
-
-            st.markdown(
-                "##### 현재 사용 중인 클리셰 사전"
-            )
-
-
-            for category, phrases in (
-                ENGLISH_AI_CLICHES.items()
-            ):
-
-                st.markdown(
-                    f"**{category}**"
-                )
-
-                st.write(
-                    ", ".join(phrases)
-                )
-
-
-# ==================================================
-# Run
-# ==================================================
 
 if __name__ == "__main__":
     main()
