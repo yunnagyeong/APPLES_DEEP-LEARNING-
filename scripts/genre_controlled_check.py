@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import stylometry_check as sc  # noqa: E402
 
 METRICS = ["sentence_length_avg", "directness_score", "logical_connective_rate", "lexical_diversity",
-           "fw_however", "fw_but", "fw_whereas", "fw_therefore", "fw_causal", "fw_purpose_formal"]
+           "fw_however", "fw_but", "fw_whereas", "fw_therefore", "fw_causal"]
 N_PERM = 2000
 rng = np.random.default_rng(0)
 

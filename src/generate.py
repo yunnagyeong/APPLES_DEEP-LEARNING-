@@ -55,11 +55,11 @@ def _load_style_reference() -> dict | None:
 # 피하라고 하면 원문 의미 표지를 지울 수 있음). 대조 표현 그룹(however/but)은 둘 다 걸리면 d가 큰 쪽만.
 FUNCTION_WORD_INSTRUCTIONS = {
     "however": "Where the source expresses contrast, render it with a formal marker such as 'however' rather than 'but'",
-    "but": "Where the source expresses contrast, render it with plain 'but' rather than a formal marker",
+    # "but" 줄은 10/30에 삭제(수영 개인 지시): 28번에서 수영 세트의 원문 대응 없는 표지(X) 16개 중 8개가 but,
+    # 지시 대상 X 비율 C 27%·D 4%, 대응 표지(O)는 C가 D보다 많지 않았음(B-022). 지표 fw_but은 그대로 계산한다.
     "whereas": "Where the source contrasts two things, render it with 'whereas' or 'on the other hand'",
     "therefore": "Where the source states a conclusion, render it with 'therefore' or 'thus'",
     "causal": "Where the source gives a reason, render it with 'since' or 'because'",
-    "purpose_formal": "Where the source states a purpose, render it with 'in order to'",
 }
 FUNCTION_WORD_MAX_LINES = 2
 

@@ -44,19 +44,21 @@ CONTENT_TAGS = {"NNG", "NNP", "VV", "VA", "MAG", "XR"}
 # 어떤 표현으로 쓰는지의 빈도. 값은 Kiwi 형태소 1000개당 등장 횟수. 규칙은 (형태, 품사 태그).
 # 그룹마다 영어 지시문(generate.py FUNCTION_WORD_INSTRUCTIONS)이 대응한다. 주제 의존 형태소
 # (시/NNB, 재/XPN 등)와 영어에서 선택지가 없는 것(와/과 병렬, 것 구문, 인용 -다고)은 뺐다.
+# D-024·D-025(10/30, B-022 사람 점검 반영): causal에서 -어서·-아서를 뺐다(점검에서 다수결 X 11문장이 전부 이 계열,
+# 이유가 아닌 용법). purpose_formal(-고자) 그룹은 폐지했다(수영 60회 중 55회가 '-고자 하다' 서두 표현이라
+# 목적이 아니라 의도 표명을 재고 있었고, 제외하면 3명 합쳐 7회뿐이라 지표가 성립하지 않음).
 FUNCTION_WORD_GROUPS: dict[str, list[tuple[str, str]]] = {
     "however": [("그러나", "MAJ")],
     "but": [("하지만", "MAJ"), ("그렇지만", "MAJ")],
     "whereas": [("반면", "NN")],
     "therefore": [("따라서", "MAJ"), ("그러므로", "MAJ")],
-    "causal": [("므로", "EC"), ("으므로", "EC"), ("어서", "EC"), ("아서", "EC"), ("그래서", "MAJ")],
-    "purpose_formal": [("고자", "EC")],
+    "causal": [("므로", "EC"), ("으므로", "EC"), ("그래서", "MAJ")],
 }
 
 # 기능어 지시문 적용 조건(D-013): 입력 한국어에 아래 표현이 실제로 있을 때만 그 그룹의 영어 줄을 지시문에
 # 넣는다(generate._style_profile_to_instructions의 source_text). 지표(FUNCTION_WORD_GROUPS)와 달리
 # ① 대조(however/but)는 그러나·하지만·그렇지만 어느 것이든(같은 기능이라 선택을 정하는 줄이 필요),
-# ② -어서·-아서는 뺀다(인과와 시간 순서가 섞여 "원문에 이유가 있다"를 장담할 수 없음). 지표 계산은 바꾸지 않았다.
+# ② -어서·-아서는 뺀다(인과와 시간 순서가 섞여 "원문에 이유가 있다"를 장담할 수 없음). 10/30(D-024)부터 지표도 같은 규칙이다.
 _CONTRAST_GATE = [("그러나", "MAJ"), ("하지만", "MAJ"), ("그렇지만", "MAJ")]
 FUNCTION_WORD_GATE: dict[str, list[tuple[str, str]]] = {
     "however": _CONTRAST_GATE,
@@ -64,7 +66,6 @@ FUNCTION_WORD_GATE: dict[str, list[tuple[str, str]]] = {
     "whereas": [("반면", "NN")],
     "therefore": [("따라서", "MAJ"), ("그러므로", "MAJ")],
     "causal": [("므로", "EC"), ("으므로", "EC"), ("그래서", "MAJ")],
-    "purpose_formal": [("고자", "EC")],
 }
 
 _kiwi: Kiwi | None = None

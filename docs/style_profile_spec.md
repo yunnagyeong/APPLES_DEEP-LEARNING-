@@ -95,11 +95,12 @@ hedging_사전 = ["~것 같다", "~수 있다", "~수도 있다", "~일 수 있�
 | 그룹 | 표현 (형태, 품사) | 영어 지시 표현 |
 |---|---|---|
 | however | 그러나(MAJ) | however |
-| but | 하지만·그렇지만(MAJ) | but |
+| but | 하지만·그렇지만(MAJ) | (지시 줄 없음, 10/30 삭제: 수영 세트 28번 결과, 지표만 계산) |
 | whereas | 반면(NN*) | whereas / on the other hand |
 | therefore | 따라서·그러므로(MAJ) | therefore / thus |
-| causal | -므로·-으므로·-어서·-아서(EC), 그래서(MAJ) | since / because |
-| purpose_formal | -고자(EC) | in order to |
+| causal | -므로·-으므로(EC), 그래서(MAJ) | since / because |
+
+10/30(D-024·D-025, B-022 사람 점검 반영): causal에서 -어서·-아서를 뺐고(점검 다수결 X 11문장이 전부 이 계열, 이유가 아닌 용법), `purpose_formal`(-고자) 그룹은 폐지해 **5그룹**입니다(코퍼스 -고자 70회 중 63회가 "-고자 하다" 서두 표현이라 목적이 아닌 의도 표명을 재고 있었고, 제외하면 3명 합쳐 7회뿐이라 지표가 성립하지 않음).
 
 ## 지시문 생성 기준 (표현 층위 / 구성 층위)
 
@@ -108,13 +109,13 @@ hedging_사전 = ["~것 같다", "~수 있다", "~수도 있다", "~일 수 있�
 - **효과 크기 d** = (본인 문서별 평균 − 나머지 두 사람의 문서별 평균) / 사람 안 표준편차(pooled within SD). 기준 분포는 `data/style_reference.json`(`scripts/build_style_reference.py`로 재생성, 코퍼스가 바뀌면 재실행). 팀 밖 사용자는 프로필 값을 세 사람 문서 평균과 비교(부호 유지율 없음).
 - **지시 조건**: |d| ≥ 0.5(`STYLE_D_THRESHOLD`) **그리고** 문서 재표본 2000회 중 부호 유지 ≥ 90%(`STYLE_SIGN_KEEP_MIN`).
 - **지시문은 보존형·선택형 문구만 씁니다**: 문장 길이 d≥+ → "Do not compress or simplify the source's long sentences"(d≤− 줄 "Do not pad or expand …"은 28번에서 조건 간 차이가 없어 D-013에서 삭제); MTLD d≥+ → "Where the source uses distinct terms, keep them distinct…", d≤− → "Use consistent, repeated key terms for clarity"; 접속어 총량은 지시하지 않음(원문에 없던 인과 주장을 만들 수 있음, 공통 규칙이 보존 담당).
-- **기능어 선택 지시**(`FUNCTION_WORD_INSTRUCTIONS` 6줄): d가 양수인 그룹 중 d가 큰 상위 2개(`FUNCTION_WORD_MAX_LINES`), however/but은 큰 쪽 하나. 적게 쓰는 방향(d<0)은 지시하지 않음. 문구는 모두 "Where the source <기능>, render it with …" 형태. **적용 조건(D-013)**: 번역 입력(`source_text`)에 그 기능의 한국어 표현이 실제로 있을 때만 줄을 넣음 (`style_features.FUNCTION_WORD_GATE`, Kiwi 규칙. 모델이 "원문에 있을 때만"을 지키지 못해 28번에서 "-며"→therefore, "만들고"→in order to 같은 의미 변경이 나왔기 때문). 대조(however/but)는 그러나·하지만·그렇지만 어느 것이든, causal은 -므로·-으므로·그래서만(-어서·-아서는 시간 순서와 섞여 제외, 지표 계산은 그대로). 조건을 먼저 거른 뒤 상위 2개를 고름. `source_text`를 안 주면 조건 없이 전부 넣음(프로필만 보는 확인용).
+- **기능어 선택 지시**(`FUNCTION_WORD_INSTRUCTIONS` 4줄: however·whereas·therefore·causal): d가 양수인 그룹 중 d가 큰 상위 2개(`FUNCTION_WORD_MAX_LINES`), however/but은 큰 쪽 하나. 적게 쓰는 방향(d<0)은 지시하지 않음. 문구는 모두 "Where the source <기능>, render it with …" 형태. **적용 조건(D-013)**: 번역 입력(`source_text`)에 그 기능의 한국어 표현이 실제로 있을 때만 줄을 넣음 (`style_features.FUNCTION_WORD_GATE`, Kiwi 규칙. 모델이 "원문에 있을 때만"을 지키지 못해 28번에서 "-며"→therefore, "만들고"→in order to 같은 의미 변경이 나왔기 때문). 대조(however/but)는 그러나·하지만·그렇지만 어느 것이든, causal은 -므로·-으므로·그래서만(-어서·-아서는 이유가 아닌 용법이 많아 제외, 10/30부터 지표도 같은 규칙). 조건을 먼저 거른 뒤 상위 2개를 고름. `source_text`를 안 주면 조건 없이 전부 넣음(프로필만 보는 확인용).
 - **공통 보존 규칙 3개**(전원 동일, 번역·재번역 프롬프트): 헤징·한정어 보존(`HEDGE_PRESERVATION_RULE`), 문장 경계 유지, 접속·전환 표현 보존(`STRUCTURE_PRESERVATION_RULES`).
 - **지시문에서 제외**(프로필 계산은 유지, 설명용): `directness_score`(서술어 종결 유형이지 직설성이 아님), `conclusion_position`, `example_usage_rate`, `paragraph_length_avg`(구성 층위, 재배열·예시 추가를 유도하거나 원문 문단 구분 차이). `formality_score`는 합쇼체 비율 ≥ 0.7일 때만 "formal tone".
 - **한계**: 사람당 15~31편이라 d의 구간이 넓음. 한국어 효과 크기·기능어 선택을 영어 지시로 옮기는 대응(그러나→however 등)은 검증되지 않았고, 기능어 그룹 선정에 선택 편향이 있음. 지시문이 번역에 실제로 반영되는지는 `scripts/compare_structure_rules.py`(조건 C 대 D)로 확인 중.
 - **단어 리스트의 역할 구분**(B-015, `docs/style_word_lists.md`): 지시문을 실제로 만드는 리스트는 `FUNCTION_WORD_GROUPS` 하나뿐입니다. `LOGICAL_CONNECTIVES`·`HEDGING_EXPRESSIONS`·`EXAMPLE_MARKERS`·`CONCLUSION_MARKERS`는 프로필 설명용 지표 계산에만 쓰이고 지시문에는 쓰이지 않습니다(헤징은 공통 보존 규칙으로 처리). 알려진 문제: `따라서`가 접속어·결론 표지어·`therefore` 그룹에 중복, `수 있다`가 가능·능력 의미까지 세어 헤징 점수가 부풀 수 있음(추측형 `수도 있다`·`일 수 있다`·`-었을 수 있다`로 좁히는 안은 발표 자료용으로 보류), `가령`·`예컨대`·`인 듯하다`·`요컨대`는 코퍼스에서 0회. 기능어 그룹의 정밀도는 `scripts/make_wordlist_check_sheet.py`로 만든 시트를 팀원 2명이 O/X로 점검해 확인합니다.
-- **장르 한계**(B-014): 지시 기준 d는 에세이+보고서를 합쳐 계산했습니다. 장르를 통제해도 작성자 차이는 유지되지만(장르 설명 비율 ≤0.08), 다중 비교 보정(p<0.0017, 검정 30개) 기준으로는 however(두 장르 모두)만 두 장르에서 유지되고 therefore·causal·고자·but·directness는 보고서 안에서만 보입니다. 같은 "보고서"라도 강희는 IT, 수영·나경은 인문이라 주제·수업 관습은 통제하지 못했으므로, 보고서 전용 신호가 개인 문체인지 수업 습관인지는 구분할 수 없습니다.
-- **작성자 식별 검증**(`scripts/stylometry_check.py`, `scripts/validate_function_word_choice.py`): 기능 형태소 top100 LOO 0.90 / 교차 장르 0.76, 기능어 6그룹만 0.81 / 0.75 (소표본, 선택 편향 있음).
+- **장르 한계**(B-014): 지시 기준 d는 에세이+보고서를 합쳐 계산했습니다. 장르를 통제해도 작성자 차이는 유지되지만(장르 설명 비율 ≤0.08), 다중 비교 보정(p<0.0017, 검정 30개) 기준으로는 however(두 장르 모두)만 두 장르에서 유지되고 therefore·causal·but·directness는 보고서 안에서만 보입니다(10/30 causal 재계산: 합산 p 0.001 경계, 보고서 안 p 0.002로 보정 기준 탈락). `purpose_formal`(고자)은 그룹 폐지로 제외. 같은 "보고서"라도 강희는 IT, 수영·나경은 인문이라 주제·수업 관습은 통제하지 못했으므로, 보고서 전용 신호가 개인 문체인지 수업 습관인지는 구분할 수 없습니다.
+- **작성자 식별 검증**(`scripts/stylometry_check.py`, `scripts/validate_function_word_choice.py`): 기능 형태소 top100 LOO 0.90 / 교차 장르 0.76, 기능어 5그룹만 0.75 / 0.58, 무작위 기능 형태소 5개 0.51 / 0.46, top100 + 5그룹 0.93 / 0.82 (10/30 재계산, 소표본, 선택 편향 있음). 6그룹(고자 포함)일 때는 0.81 / 0.75였는데 고자가 "-고자 하다" 서두 습관이라 교차 장르 신호가 컸던 것으로 보임.
 
 ## StyleProfile 스키마 (초안)
 
@@ -131,7 +132,7 @@ StyleProfile = {
     "example_usage_rate": float,       # 문장당 예시 표지어 개수 (추가 권장 항목)
     "lexical_diversity": float,        # MTLD, 값이 클수록 다양 (0~1 아님. 추가 권장 항목 — 7주차 AI 획일화 지표와 로직 공유)
     "paragraph_length_avg": float,     # 문단당 평균 문장 수 (추가 권장 항목)
-    "function_word_choice": dict,      # {그룹: 형태소 1000개당 횟수} 6그룹 (24번, 위 10번 항목)
+    "function_word_choice": dict,      # {그룹: 형태소 1000개당 횟수} 5그룹 (24번, 위 10번 항목)
     "source_example_count": int,       # 이 프로파일을 뽑은 데 사용한 원문 개수 (표본 크기 투명성용)
 }
 ```

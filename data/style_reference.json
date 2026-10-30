@@ -7,7 +7,7 @@
     "suyoung": 31
   },
   "kiwipiepy": "0.24.1",
-  "built_at": "2026-10-24T03:02:56",
+  "built_at": "2026-10-30T05:43:42",
   "metrics": {
     "sentence_length_avg": {
       "mean": 16.2433,
@@ -258,19 +258,19 @@
       }
     },
     "fw_causal": {
-      "mean": 3.1656,
-      "sd": 2.447,
+      "mean": 0.991,
+      "sd": 1.2557,
       "n": 67,
-      "within_sd": 2.1685,
+      "within_sd": 1.1277,
       "author_mean": {
-        "ganghee": 5.373,
-        "nakyung": 2.5731,
-        "suyoung": 2.4988
+        "ganghee": 1.938,
+        "nakyung": 1.1073,
+        "suyoung": 0.4541
       },
       "author_sd": {
-        "ganghee": 2.892,
-        "nakyung": 1.6066,
-        "suyoung": 2.0995
+        "ganghee": 1.9154,
+        "nakyung": 0.9001,
+        "suyoung": 0.6789
       },
       "author_n": {
         "ganghee": 15,
@@ -278,44 +278,13 @@
         "suyoung": 31
       },
       "author_d": {
-        "ganghee": 1.308,
-        "nakyung": -0.628,
-        "suyoung": -0.68
+        "ganghee": 1.026,
+        "nakyung": -0.079,
+        "suyoung": -0.948
       },
       "author_sign_keep": {
-        "ganghee": 1.0,
-        "nakyung": 0.997,
-        "suyoung": 0.994
-      }
-    },
-    "fw_purpose_formal": {
-      "mean": 0.4897,
-      "sd": 0.6837,
-      "n": 67,
-      "within_sd": 0.5492,
-      "author_mean": {
-        "ganghee": 0.0792,
-        "nakyung": 0.1229,
-        "suyoung": 0.9368
-      },
-      "author_sd": {
-        "ganghee": 0.2105,
-        "nakyung": 0.2064,
-        "suyoung": 0.7709
-      },
-      "author_n": {
-        "ganghee": 15,
-        "nakyung": 21,
-        "suyoung": 31
-      },
-      "author_d": {
-        "ganghee": -0.821,
-        "nakyung": -0.701,
-        "suyoung": 1.522
-      },
-      "author_sign_keep": {
-        "ganghee": 1.0,
-        "nakyung": 1.0,
+        "ganghee": 0.997,
+        "nakyung": 0.614,
         "suyoung": 1.0
       }
     }
