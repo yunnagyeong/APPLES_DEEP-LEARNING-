@@ -64,14 +64,9 @@ def user_groups(instr_text: str, new) -> list[str]:
     return [g for g, line in new.FUNCTION_WORD_INSTRUCTIONS.items() if line in instr_text]
 
 
-def pick_paragraphs(src_users: list[str], n: int, groups: list[str] | None = None) -> list[dict]:
-    """4~6문장·150~450자 문단(덩어리)을 고른다.
-
-    groups가 주어지면(번역 대상 사용자의 기능어 지시 그룹) 원문에 그 그룹 표현이 있는 문단을
-    약 2/3(`지시 대상`)으로, 없는 문단을 나머지(`대조군`: 원문에 없는 표지를 새로 넣는지 확인)로 고른다.
-    groups가 없으면 예전처럼 접속어 1개 이상 문단을 고른다.
-    수영·나경 raw는 문서 전체가 한 문단이라(문단 구분 없음, D-003) 7문장 이상이면 5문장씩 잘라 쓴다.
-    """
+def candidate_paragraphs(src_users: list[str], groups: list[str] | None = None,
+                         only_docs: dict[str, set[str]] | None = None) -> list[dict]:
+    """조건(4~6문장·150~450자)에 맞는 후보 문단 전부. only_docs={사람: {doc id}}면 그 문서만(홀드아웃용)."""
     from src import style_features as sf
     kiwi = sf._get_kiwi()
     cands = []
@@ -79,6 +74,8 @@ def pick_paragraphs(src_users: list[str], n: int, groups: list[str] | None = Non
         for line in open(ROOT / f"data/raw/corpus_{src_user}_raw.jsonl", encoding="utf-8"):
             d = json.loads(line)
             if d.get("type") not in ("essay", "report"):
+                continue
+            if only_docs is not None and d["id"] not in only_docs.get(src_user, set()):
                 continue
             for para in sf.split_paragraphs(d["text"]):
                 sents = sf.split_sentences(para)
@@ -93,9 +90,23 @@ def pick_paragraphs(src_users: list[str], n: int, groups: list[str] | None = Non
                     gcnt = sf.count_gate_groups(toks)  # 지시문 적용 조건(D-013)과 같은 기준으로 역할을 나눔
                     found = [c for c in sf.LOGICAL_CONNECTIVES for _ in range(text.count(c))] + \
                             [e for e in KO_ENDINGS for _ in range(text.count(e))]
-                    cands.append({"doc": d["id"], "src": src_user, "ko": text, "ko_n": len(ch), "ko_conn": nconn,
-                                  "ko_found": found, "ko_fw": {k: v for k, v in cnt.items() if v},
+                    cands.append({"doc": d["id"], "src": src_user, "type": d["type"], "ko": text, "ko_n": len(ch),
+                                  "ko_conn": nconn, "ko_found": found,
+                                  "ko_fw": {k: v for k, v in cnt.items() if v},
                                   "ko_target": sum(gcnt[g] for g in (groups or []))})
+    return cands
+
+
+def pick_paragraphs(src_users: list[str], n: int, groups: list[str] | None = None,
+                    only_docs: dict[str, set[str]] | None = None) -> list[dict]:
+    """4~6문장·150~450자 문단(덩어리)을 고른다.
+
+    groups가 주어지면(번역 대상 사용자의 기능어 지시 그룹) 원문에 그 그룹 표현이 있는 문단을
+    약 2/3(`지시 대상`)으로, 없는 문단을 나머지(`대조군`: 원문에 없는 표지를 새로 넣는지 확인)로 고른다.
+    groups가 없으면 예전처럼 접속어 1개 이상 문단을 고른다.
+    수영·나경 raw는 문서 전체가 한 문단이라(문단 구분 없음, D-003) 7문장 이상이면 5문장씩 잘라 쓴다.
+    """
+    cands = candidate_paragraphs(src_users, groups, only_docs)
     if groups:
         hits = [c for c in cands if c["ko_target"] >= 1]
         nones = [c for c in cands if c["ko_target"] == 0]
@@ -128,6 +139,8 @@ def main():
     ap.add_argument("--n", type=int, default=2)
     ap.add_argument("--base", default="HEAD")
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--holdout", action="store_true",
+                    help="data/measure/holdout_docs.json의 본인 홀드아웃 문서 문단으로 실험하고, RAG 풀에서 그 문서를 뺀다")
     a = ap.parse_args()
 
     from src import config, generate as new
@@ -137,7 +150,14 @@ def main():
     profile = json.load(open(config.style_profile_cache_path(a.user), encoding="utf-8"))
     srcs = [x for x in ("ganghee", "nakyung", "suyoung") if x != a.user] if a.src == "auto" else a.src.split(",")
     groups = user_groups(new._style_profile_to_instructions(profile, a.user), new)
-    paras = pick_paragraphs(srcs, a.paras, groups)
+    only_docs, excl = None, None
+    if a.holdout:
+        ho = json.load(open(ROOT / "data/measure/holdout_docs.json", encoding="utf-8"))["holdout"]
+        only_docs = {a.user: set(ho[a.user])}
+        excl = set(ho[a.user])
+        srcs = [a.user]
+        print(f"홀드아웃 모드: {a.user} 문서 {sorted(excl)} 문단 사용, RAG에서 제외")
+    paras = pick_paragraphs(srcs, a.paras, groups, only_docs)
     print(f"문단 {len(paras)}개 선택 (출처 {srcs}, 지시 그룹 {groups}, 문장 수 {[p['ko_n'] for p in paras]}, "
           f"역할 {[p['role'] for p in paras]})")
     rules = new.STRUCTURE_PRESERVATION_RULES
@@ -159,7 +179,7 @@ def main():
 
     rows = []
     for i, p in enumerate(paras, 1):
-        ex = [] if a.dry else retrieve_similar(p["ko"], a.user, k=config.DEFAULT_TOP_K)
+        ex = [] if a.dry else retrieve_similar(p["ko"], a.user, k=config.DEFAULT_TOP_K, exclude_doc_ids=excl)
         for label, mod, r, fwmax in (("A 전", old, None, None), ("B d만", new, (), None),
                                      ("C d+규칙", new, rules, None), ("D 기능어 뺌", new, rules, 0)):
             if r is not None:

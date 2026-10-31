@@ -18,7 +18,8 @@ def _cosine_similarity(query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
 
 
 def retrieve_similar(
-    query: str, user: str, k: int = config.DEFAULT_TOP_K, type_filter: str | None = None
+    query: str, user: str, k: int = config.DEFAULT_TOP_K, type_filter: str | None = None,
+    exclude_doc_ids: set[str] | None = None,
 ) -> list[dict]:
     """query와 가장 비슷한 user의 예시 상위 k개를 유사도 점수와 함께 반환합니다.
 
@@ -27,10 +28,17 @@ def retrieve_similar(
     일반적인 문장은 특정 장르의 어휘를 담고 있지 않아 의미 검색만으로는 엉뚱한 장르의 예시가
     뽑힐 수 있는데(예: "이번 주차 활동 정리"), 원하는 장르가 이미 정해져 있다면 이 옵션으로
     강제할 수 있습니다.
+    exclude_doc_ids를 주면 그 문서에서 나온 예시는 검색에서 뺍니다(홀드아웃 평가용, 기본은 제외 없음).
 
     반환값은 [{"score": float, **example}, ...] 형태이며 유사도가 높은 순으로 정렬됩니다.
     """
     examples, vectors = load_indexed_examples(user)
+    if exclude_doc_ids:
+        # 홀드아웃 문서(D-030): 예시 id가 "doc_001_01"처럼 문서 id + 청크 번호라 문서 id 접두로 거른다
+        filtered = [(ex, vec) for ex, vec in zip(examples, vectors)
+                    if ex["id"].rsplit("_", 1)[0] not in exclude_doc_ids]
+        examples = [ex for ex, _ in filtered]
+        vectors = [vec for _, vec in filtered]
     if type_filter is not None:
         filtered = [(ex, vec) for ex, vec in zip(examples, vectors) if ex.get("type") == type_filter]
         examples = [ex for ex, _ in filtered]

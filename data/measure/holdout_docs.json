@@ -1,0 +1,91 @@
+{
+ "created": "2026-10-31T19:35:14",
+ "seed_requested": 20261101,
+ "seed_used": 20261101,
+ "tries": 1,
+ "rules": [
+  "고정: v2 heldout_sources.jsonl 긴 문단 출처 문서",
+  "채움: 사람×장르 목표 {'report': 2, 'essay': 1} 미달분을 random.Random(seed).sample로, 고정은 바꾸지 않음",
+  "사후 조건: 지시 그룹 있으면 지시 대상 문단 ≥4·대조군 ≥2, 없으면 후보 ≥6 (문단 4~6문장·150~450자). 부족하면 다음 시드",
+  "홀드아웃 문서는 RAG 풀(doc id)과 style_reference 계산에서 제외"
+ ],
+ "fixed": {
+  "ganghee": [
+   "doc_011"
+  ],
+  "nakyung": [
+   "doc_012",
+   "doc_015",
+   "doc_017",
+   "doc_002"
+  ],
+  "suyoung": [
+   "doc_022",
+   "doc_023",
+   "doc_024"
+  ]
+ },
+ "holdout": {
+  "ganghee": [
+   "doc_007",
+   "doc_011",
+   "doc_019"
+  ],
+  "nakyung": [
+   "doc_002",
+   "doc_012",
+   "doc_015",
+   "doc_017"
+  ],
+  "suyoung": [
+   "doc_012",
+   "doc_022",
+   "doc_023",
+   "doc_024"
+  ]
+ },
+ "types": {
+  "ganghee": {
+   "doc_007": "report",
+   "doc_011": "report",
+   "doc_019": "essay"
+  },
+  "nakyung": {
+   "doc_002": "essay",
+   "doc_012": "report",
+   "doc_015": "report",
+   "doc_017": "report"
+  },
+  "suyoung": {
+   "doc_012": "essay",
+   "doc_022": "report",
+   "doc_023": "report",
+   "doc_024": "report"
+  }
+ },
+ "post_check": {
+  "ganghee": {
+   "groups": [
+    "causal"
+   ],
+   "target_paragraphs": 6,
+   "control_paragraphs": 37,
+   "ok": true
+  },
+  "nakyung": {
+   "groups": [
+    "however",
+    "therefore"
+   ],
+   "target_paragraphs": 28,
+   "control_paragraphs": 24,
+   "ok": true
+  },
+  "suyoung": {
+   "groups": [],
+   "candidate_paragraphs": 16,
+   "ok": true
+  }
+ },
+ "note": "post_check는 선정 시점(홀드아웃 제외 재계산 전) 지시 그룹 기준. 재계산 뒤 지시 그룹이 바뀌면 다시 확인."
+}

@@ -80,7 +80,14 @@ def sign_keep(rows: list[dict], m: str, seed: int = 0) -> dict[str, float]:
     return {u: round(keep[u] / N_BOOT, 3) for u in AUTHORS}
 
 
+def _load_holdout() -> dict[str, set[str]]:
+    """--holdout: data/measure/holdout_docs.json의 홀드아웃 문서는 기준 분포 계산에서 뺀다(D-030, 누출 방지)."""
+    h = json.loads((ROOT / "data/measure/holdout_docs.json").read_text(encoding="utf-8"))["holdout"]
+    return {u: set(v) for u, v in h.items()}
+
+
 def main() -> None:
+    holdout = _load_holdout() if "--holdout" in sys.argv else {}
     rows = []
     for u in AUTHORS:
         for line in open(ROOT / f"data/raw/corpus_{u}_raw.jsonl", encoding="utf-8"):
@@ -88,6 +95,8 @@ def main() -> None:
                 continue
             d = json.loads(line)
             if d.get("type") not in TYPES:
+                continue
+            if d["id"] in holdout.get(u, set()):
                 continue
             rows.append({"author": u, "id": d["id"], "type": d["type"], **doc_metrics(d["text"])})
 
@@ -108,7 +117,8 @@ def main() -> None:
             "author_sign_keep": sign_keep(rows, m),
         }
     out = {
-        "population": "raw essay+report documents of ganghee/nakyung/suyoung",
+        "population": "raw essay+report documents of ganghee/nakyung/suyoung" + (" (holdout 제외)" if holdout else ""),
+        "holdout_excluded": {u: sorted(v) for u, v in holdout.items()} if holdout else None,
         "n_docs": len(rows),
         "per_author_docs": {u: sum(1 for r in rows if r["author"] == u) for u in AUTHORS},
         "kiwipiepy": kiwipiepy.__version__,
