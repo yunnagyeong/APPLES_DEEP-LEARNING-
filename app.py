@@ -8,7 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 st.set_page_config(
-    page_title="Personalized Translation & AI Uniformity Benchmark",
+    page_title="Lingua Me",
     layout="wide",
 )
 
@@ -211,7 +211,7 @@ def render_verification(detail):
 # 화면
 # ==================================================
 def main():
-    st.title("Personalized Translation & AI Uniformity Benchmark")
+    st.title("Lingua Me")
     st.caption("한국어 → 영어 개인화 번역 비교 및 AI 획일화 정량 지표 대시보드")
 
     with st.sidebar:
