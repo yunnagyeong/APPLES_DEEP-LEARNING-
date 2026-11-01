@@ -1,12 +1,10 @@
-"""7주차 평가용 비교 조건(baseline) A, B.
+"""비교 조건 A·B 번역기 (app.py, 7주차 A/B/C 비교용).
 
-C(우리 팀 방법)는 pipeline.translate_with_verification()을 그대로 씁니다.
-A와 B는 C와 같은 생성 모델(config.GENERATION_MODEL)을 써야 공정한 비교가 되므로,
-여기서도 같은 클라이언트·모델·재시도 설정을 공유합니다.
+A · 일반 번역      : 예시·문체 지시·검증 없이 그대로 번역 (zero-shot)
+B · 단순 개인화(RAG): 검색한 본인 한국어 예시만 프롬프트에 넣음. 문체 프로필 지시·보존 규칙·검증 없음
+C · 우리 팀 방법    : src.pipeline.translate_with_verification (프로필 + RAG + 보존 규칙 + 검증·재번역)
 
-- A. Zero-Shot 기본 번역      : 한국어 원문만 넣고 번역 (성능 하한선)
-- B. In-Context 예시 기반 번역 : 원문 + RAG로 찾은 사용자 예시 k개만 넣고 번역
-                                (Style Profile, NLI 검증·재번역 없음)
+A·B는 생성 모델 호출 1번(+ B는 검색 임베딩 1번)이라 C보다 훨씬 빠릅니다.
 """
 
 from . import config
@@ -25,28 +23,31 @@ def _generate(prompt: str, label: str) -> str:
 
 
 def translate_zero_shot(korean_text: str) -> str:
-    """Condition A: 개인화 정보 없이 일반 번역."""
+    """조건 A: 일반 번역."""
     prompt = f"""Translate the following Korean text into natural, fluent English.
-Output only the translation.
 
 Korean text:
 {korean_text}
 
+Output only the English translation, with no preface, notes, or quotation marks.
+
 English translation:"""
-    return _generate(prompt, label="baseline A 생성 호출")
+    return _generate(prompt, "baseline A 생성 호출")
 
 
-def translate_in_context(korean_text: str, user: str, k: int = config.DEFAULT_TOP_K) -> str:
-    """Condition B: 사용자 과거 글 예시 k개만 프롬프트에 넣는 단순 개인화 번역."""
-    examples = retrieve_similar(korean_text, user, k=k)
-    prompt = f"""Translate the following Korean text into English in the same style as the writer's examples below.
-Output only the translation.
+def translate_in_context(korean_text: str, user: str, examples: list[dict] | None = None) -> str:
+    """조건 B: 검색한 예시만 넣은 단순 개인화. examples를 주면 검색을 건너뜁니다."""
+    if examples is None:
+        examples = retrieve_similar(korean_text, user, k=config.DEFAULT_TOP_K)
+    prompt = f"""Translate the following Korean text into English in the writer's personal style.
 
-Writer's examples:
+Reference examples of the writer's Korean style (to understand tone and approach):
 {_format_examples(examples)}
 
 Korean text:
 {korean_text}
 
+Output only the English translation, with no preface, notes, or quotation marks.
+
 English translation:"""
-    return _generate(prompt, label="baseline B 생성 호출")
+    return _generate(prompt, "baseline B 생성 호출")

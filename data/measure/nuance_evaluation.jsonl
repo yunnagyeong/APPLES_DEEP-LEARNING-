@@ -1,0 +1,32 @@
+{"id": "1", "human_error": "헤징/주관성 손실 (생각한다 삭제, 수도 있다→inevitably)", "human_severity": "상", "nuance": {"has_meaning_error": true, "error_types": ["MODALITY_SHIFT", "UNSUPPORTED_ADDITION", "OMISSION"], "explanation": "원문의 '생각한다'라는 주관적 의사 표현이 누락되었고 'fundamentally'라는 원문에 없는 의미가 추가되었습니다. 또한 '떨어질 수도 있다'(가능성)가 'inevitably degrades'(필연적으로 떨어진다)로 변경되어 양태(modality) 오류가 발생했습니다."}}
+{"id": "2", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "3", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": true, "error_types": ["UNSUPPORTED_ADDITION"], "explanation": "원문에는 '단지'나 '그저'에 해당하는 표현(단순히 등)이 없으나, 번역문에 'simply'가 추가되어 의미가 보태졌습니다."}}
+{"id": "4", "human_error": "헤징 손실 (~해 보인다 삭제, 단정적 지시문으로 변경)", "human_severity": "중", "nuance": {"has_meaning_error": true, "error_types": ["MODALITY_SHIFT"], "explanation": "원문의 '~해 보인다'는 추측 및 조심스러운 판단(양태)을 나타내지만, 번역문에서는 'is required'로 단정적으로 표현되어 확신도에 차이가 발생했습니다."}}
+{"id": "5", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "6", "human_error": "Unsupported Addition + 주관성 손실 (내 생각엔→clearly, 없는 근거 추가)", "human_severity": "상", "nuance": {"has_meaning_error": true, "error_types": ["UNSUPPORTED_ADDITION"], "explanation": "원문에 없는 내용('because it maximizes overall efficiency and structural stability')이 번역문에 임의로 추가되었습니다."}}
+{"id": "7", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "8", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "9", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "10", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "11", "human_error": "경미한 과장 ('크지 않다'→negligible)", "human_severity": "하", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "12", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "13", "human_error": "Unsupported Addition (원문에 없는 근거 문장 생성)", "human_severity": "상", "nuance": {"has_meaning_error": true, "error_types": ["UNSUPPORTED_ADDITION"], "explanation": "원문에는 없는 이유('because raw data inherently contains noise and inconsistencies that degrade model performance')가 번역문에 임의로 추가되었습니다."}}
+{"id": "14", "human_error": "Unsupported Addition (특정 정규화 방식(z-score)을 사실인 것처럼 단정 추가)", "human_severity": "상", "nuance": {"has_meaning_error": true, "error_types": ["UNSUPPORTED_ADDITION"], "explanation": "원문에는 없는 추가적인 설명('because this ensures the data distribution has a mean of zero and a variance of one')이 번역문에 임의로 추가되었습니다."}}
+{"id": "15", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "16", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "17", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "18", "human_error": "시제 변경 (과거→현재)", "human_severity": "하", "nuance": {"has_meaning_error": true, "error_types": ["TENSE_SHIFT"], "explanation": "원문은 과거 시제('높아졌지만', '늘어났고')를 사용하여 결과를 서술하고 있으나, 번역문에서는 현재 시제('increases', 'grows')로 표현되어 시제가 일치하지 않습니다."}}
+{"id": "19", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "20", "human_error": "헤징 손실 (수 있다→causes)", "human_severity": "중", "nuance": {"has_meaning_error": true, "error_types": ["MODALITY_SHIFT"], "explanation": "원문의 '발산할 수 있다'는 가능성을 나타내는 표현(-ㄹ 수 있다)인 반면, 번역문은 'causes divergence'로 단정적·확정적으로 표현하여 양상(modality)의 차이가 발생했습니다."}}
+{"id": "21", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "22", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "23", "human_error": "Unsupported Addition (전체 사례 중 가장 심각 - 의미 불명확한 전문용어까지 지어냄)", "human_severity": "상", "nuance": {"has_meaning_error": true, "error_types": ["UNSUPPORTED_ADDITION"], "explanation": "원문은 단순히 '모델 A가 모델 B보다 성능이 좋다'는 사실만을 언급하고 있으나, 번역문에는 원문에 없는 이유와 추가적인 설명('because optimization dictates...')이 무단으로 덧붙여졌습니다."}}
+{"id": "24", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "25", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "26", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "27", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "28", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "29", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "30", "human_error": "시제 변경 (과거→현재)", "human_severity": "하", "nuance": {"has_meaning_error": true, "error_types": ["TENSE_SHIFT"], "explanation": "원문의 '구현했다'는 과거 시제인데, 번역문에서는 'are implemented'로 현재 시제를 사용하여 시제가 일치하지 않습니다."}}
+{"id": "31", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}
+{"id": "32", "human_error": "없음", "human_severity": "", "nuance": {"has_meaning_error": false, "error_types": [], "explanation": ""}}

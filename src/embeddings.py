@@ -51,3 +51,19 @@ def embed_text(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
         label="embed_text",
     )
     return list(result.embeddings[0].values)
+
+
+def embed_texts(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
+    """여러 텍스트를 API 호출 한 번으로 임베딩합니다(순서 유지). 검증의 원문·번역문 유사도용."""
+    if len(texts) == 1:
+        return [embed_text(texts[0], task_type=task_type)]
+    client = _ensure_client()
+    result = call_with_retry(
+        lambda: client.models.embed_content(
+            model=config.EMBEDDING_MODEL,
+            contents=list(texts),
+            config=types.EmbedContentConfig(task_type=task_type),
+        ),
+        label="embed_texts",
+    )
+    return [list(e.values) for e in result.embeddings]

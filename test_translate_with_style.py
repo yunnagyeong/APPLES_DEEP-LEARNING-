@@ -1,5 +1,5 @@
 from src.generate import translate_with_style
-from src.verify import verify_translation
+from src.verify_legacy import verify_translation
 
 
 korean_text = """
@@ -24,7 +24,8 @@ style_profile = {
 # 1. Generation
 translated_text = translate_with_style(
     korean_text=korean_text,
-    style_profile=style_profile
+    style_profile=style_profile,
+    user="ganghee",
 )
 
 print("\n=== Personalized English Translation ===")

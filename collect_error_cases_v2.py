@@ -14,7 +14,9 @@ error_cases.csv를 읽어서, 이미 있는 1차 결과(11개)는 재호출하�
 import csv
 import time
 
-from src.pipeline import generate_translation  # 파일 위치에 맞게 수정하세요
+from src.pipeline import generate_translation
+
+USER = "ganghee"  # 어느 사람 문체로 번역할지
 
 EXISTING_RESULTS_PATH = "error_cases.csv"
 
@@ -106,7 +108,7 @@ def run_error_case_collection(
         print(f"[{i}/{total_new}] ({category}) 번역 중: {korean_text[:30]}...")
 
         try:
-            translation = generate_translation(korean_text)
+            translation = generate_translation(USER, korean_text)
             error_note = ""
         except Exception as e:
             translation = ""
