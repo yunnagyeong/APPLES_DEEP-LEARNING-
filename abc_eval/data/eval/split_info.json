@@ -1,0 +1,60 @@
+{
+  "seed": 42,
+  "per_user": 10,
+  "min_chars": 200,
+  "min_docs": 3,
+  "max_per_doc": 4,
+  "users": [
+    {
+      "user": "ganghee",
+      "total_docs": 21,
+      "train_docs": 18,
+      "train_chunks": 155,
+      "embeddings_reused": 155,
+      "heldout_docs": {
+        "doc_006": "4주차 보강과제",
+        "doc_015": "데이터통신 CH8 리포트",
+        "doc_020": "빅데이터에 대한 생각과 경험"
+      },
+      "eval_chunks_per_doc": {
+        "doc_020": 2,
+        "doc_006": 4,
+        "doc_015": 4
+      }
+    },
+    {
+      "user": "nakyung",
+      "total_docs": 21,
+      "train_docs": 18,
+      "train_chunks": 177,
+      "embeddings_reused": 177,
+      "heldout_docs": {
+        "doc_009": "언어는 인류의 발전에 도움이 되었다. (언어적, 화용론적 관점에서)",
+        "doc_016": "AI 할루시네이션 유도 실험",
+        "doc_020": "아버지의 역할과 엄부자모"
+      },
+      "eval_chunks_per_doc": {
+        "doc_016": 4,
+        "doc_009": 3,
+        "doc_020": 3
+      }
+    },
+    {
+      "user": "suyoung",
+      "total_docs": 31,
+      "train_docs": 28,
+      "train_chunks": 250,
+      "embeddings_reused": 250,
+      "heldout_docs": {
+        "doc_013": "노키즈존·노스쿨존과 집단 차별에 대한 의견",
+        "doc_014": "『우상의 눈물』은 정의를 어떻게 평가하는가",
+        "doc_024": "점점 사라져 가는 언어들, 어떻게 보존해야 할까"
+      },
+      "eval_chunks_per_doc": {
+        "doc_013": 4,
+        "doc_024": 3,
+        "doc_014": 3
+      }
+    }
+  ]
+}
