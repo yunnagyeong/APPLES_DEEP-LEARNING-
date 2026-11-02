@@ -3,6 +3,7 @@
 사용법 (프로젝트 루트):
     python scripts/run_abc.py --limit 2     # 먼저 원문 2개로 시험 (API 약 20회)
     python scripts/run_abc.py               # 전체 30개 × A/B/C
+    python scripts/run_abc.py --only R      # R(프로필만, 검색 없음) 추가 실행
     python scripts/score_abc.py             # 점수 계산 → results/abc/summary.csv
 
 - 학습용 코퍼스(평가 글을 뺀 것)로 자동 전환합니다. 앱·데모는 영향 없음.
@@ -46,9 +47,11 @@ def run_one(src: dict, cond: str, profiles: dict, retries: int) -> dict:
     t0 = time.perf_counter()
     rec = {"sample_id": src["id"], "person": user, "condition": cond, "source": text}
     try:
-        if cond == "C":
+        if cond in ("C", "R"):
+            # R = C에서 비슷한 글 검색(RAG)만 뺀 조건(D-035): examples=[]를 주면 검색을 건너뛰고 프로필 지시문만 씀
             r = translate_with_verification(korean_text=text, style_profile=profiles[user],
-                                            user=user, max_retries=retries)
+                                            user=user, max_retries=retries,
+                                            examples=[] if cond == "R" else None)
             rec.update(output=r["translation"], verdict=r["verdict"], meaning_score=r.get("meaning_score"),
                        issues=_issues_str(r.get("issues")), attempts=r.get("attempts"),
                        judge_model=r.get("judge_model"))
@@ -79,12 +82,19 @@ def load_done() -> set:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=None, help="사람마다 원문 몇 개만 (시험용)")
-    ap.add_argument("--only", nargs="*", choices=["A", "B", "C"], default=["A", "B", "C"])
+    ap.add_argument("--only", nargs="*", choices=["A", "B", "C", "R"], default=["A", "B", "C"],
+                    help="R은 기본에 포함 안 됨: --only R 로 따로 실행")
     ap.add_argument("--retries", type=int, default=config.DEFAULT_MAX_RETRIES)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--person", nargs="*", choices=["ganghee", "nakyung", "suyoung"], default=None,
+                    help="이 사람의 원문만 (예: --person suyoung)")
+    ap.add_argument("--redo", action="store_true",
+                    help="이미 끝난 건도 다시 실행(결과는 results.jsonl 뒤에 덧붙고, score_abc.py는 가장 나중 것을 씀)")
     args = ap.parse_args()
 
     sources = [json.loads(l) for l in SOURCES.open(encoding="utf-8") if l.strip()]
+    if args.person:
+        sources = [s for s in sources if s["person"] in args.person]
     if args.limit:
         count, kept = {}, []
         for s in sources:
@@ -96,7 +106,7 @@ def main():
     print(f"[준비] 학습용 코퍼스 사용: {[config.examples_path(u).name for u in users]}")
     profiles = {u: _load_or_compute_style_profile(u) for u in users}  # 학습용으로 문체 프로필 계산
 
-    done = load_done()
+    done = set() if args.redo else load_done()
     jobs = [(s, c) for s in sources for c in args.only if (s["id"], c) not in done]
     print(f"[준비] 할 일 {len(jobs)}건 (이미 끝난 {len(sources) * len(args.only) - len(jobs)}건 건너뜀)")
     OUT_DIR.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,7 @@
+﻿id,condition,source,translation,verdict,meaning_score,meaning_score_method,issues,judge_model,seconds,error,실행 커밋
+1,A,이 방법이 효율적이라고 생각한다. 하지만 데이터가 부족하면 성능이 떨어질 수도 있다.,"I think this method is efficient. However, if data is lacking, performance might drop.",PASS,100.0,CLAIM_ALIGNMENT_V2,,gemini-3.6-flash,3.0,,da1c552 (+미커밋 변경 있음)
+1,B,이 방법이 효율적이라고 생각한다. 하지만 데이터가 부족하면 성능이 떨어질 수도 있다.,"I think this method is efficient. However, if data is lacking, performance might drop.",PASS,100.0,CLAIM_ALIGNMENT_V2,,gemini-3.6-flash,2.3,,da1c552 (+미커밋 변경 있음)
+2,A,"아직 확실하지는 않지만, 이 접근법이 더 나을 것 같다.","It's not certain yet, but this approach seems better.",PASS,100.0,CLAIM_ALIGNMENT_V2,,gemini-3.6-flash,2.9,,da1c552 (+미커밋 변경 있음)
+2,B,"아직 확실하지는 않지만, 이 접근법이 더 나을 것 같다.","It is still not certain, but this approach seems better.",PASS,100.0,CLAIM_ALIGNMENT_V2,,gemini-3.6-flash,2.9,,da1c552 (+미커밋 변경 있음)
+3,A,이 결과는 우연일 수도 있다.,This result could be a coincidence.,PASS,100.0,CLAIM_ALIGNMENT_V2,,gemini-3.6-flash,2.4,,da1c552 (+미커밋 변경 있음)
+3,B,이 결과는 우연일 수도 있다.,This outcome might just be a coincidence.,PASS,100.0,CLAIM_ALIGNMENT_V2,,gemini-3.6-flash,2.1,,da1c552 (+미커밋 변경 있음)

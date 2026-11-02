@@ -81,9 +81,10 @@ def sign_keep(rows: list[dict], m: str, seed: int = 0) -> dict[str, float]:
 
 
 def _load_holdout() -> dict[str, set[str]]:
-    """--holdout: data/measure/holdout_docs.json의 홀드아웃 문서는 기준 분포 계산에서 뺀다(D-030, 누출 방지)."""
-    h = json.loads((ROOT / "data/measure/holdout_docs.json").read_text(encoding="utf-8"))["holdout"]
-    return {u: set(v) for u, v in h.items()}
+    """--holdout: 나경이 만든 공통 평가 분할(data/eval/split_info.json, seed 42, D-035)의 평가용 문서를
+    기준 분포 계산에서 뺀다(누출 방지). 예전 holdout_docs.json(D-030)은 폐기됨."""
+    s = json.loads((ROOT / "data/eval/split_info.json").read_text(encoding="utf-8"))
+    return {u["user"]: set(u["heldout_docs"]) for u in s["users"]}
 
 
 def main() -> None:
