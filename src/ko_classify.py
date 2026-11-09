@@ -74,6 +74,18 @@ class Classifiers:
             delta.append(min(d, key=d.get))
         return {"SVM": svm, "Delta": delta}
 
+    def scores(self, texts: list[str]) -> dict[str, list[dict[str, float]]]:
+        """사람별 점수(클수록 그 사람 쪽). SVM = decision_function, Delta = -평균 거리. 배정 지표용(D-072)."""
+        import numpy as np
+        dec = self.svm.decision_function([self._feat(t) for t in texts])
+        classes = [str(c) for c in self.svm.classes_]
+        svm = [{c: float(row[i]) for i, c in enumerate(classes)} for row in dec]
+        delta = []
+        for t in texts:
+            z, _ = zvec(self.ref, t, True)
+            delta.append({p: -float(np.abs(z - self.ref["cents"][p]).mean()) for p in PEOPLE})
+        return {"SVM": svm, "Delta": delta}
+
     def sizes(self) -> str:
         c = Counter(a for a, _ in self.corpus["train_paras"])
         return (f"SVM 학습 문단 {sum(c.values())}개 ({', '.join(f'{k} {v}' for k, v in c.items())}), "

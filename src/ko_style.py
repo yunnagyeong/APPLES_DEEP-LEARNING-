@@ -98,11 +98,15 @@ def p_lines_for(target: str, text: str, version: str = "new"):
     return [line for fn, line in table[target] if fn is None or fn in present], mode
 
 
-def build_prompt(text: str, lines: list[str], examples: list[dict] | None, version: str = "new") -> str:
+BOOST_RULE = "뜻과 형식은 유지하되 단어·어미·연결 표현은 이 필자처럼 적극적으로 바꿔도 된다."  # D-072 ③ 변환 강도 시험용(기본 꺼짐)
+
+
+def build_prompt(text: str, lines: list[str], examples: list[dict] | None, version: str = "new", boost: bool = False) -> str:
     _check_version(version)
     old = version == "old"
     parts = [_OLD_HEAD if old else _NEW_HEAD, "", "규칙:"]
-    parts += [f"{i}. {r}" for i, r in enumerate(OLD_COMMON_RULES if old else COMMON_RULES, 1)]
+    rules = list(OLD_COMMON_RULES if old else COMMON_RULES) + ([BOOST_RULE] if boost else [])
+    parts += [f"{i}. {r}" for i, r in enumerate(rules, 1)]
     if lines:
         parts += ["", "문체 지시:"] + [f"- {l}" for l in lines]
     if examples:
@@ -128,7 +132,7 @@ def retrieve_examples(text: str, user: str, exclude_doc_ids: set[str] | None = N
 
 def convert_style(text: str, user: str, mode: str = "P+R", *, examples: list[dict] | None = None,
                   exclude_doc_ids: set[str] | None = None, dummy_output: str | None = None,
-                  version: str = "new") -> dict:
+                  version: str = "new", boost: bool = False) -> dict:
     """text를 user의 문체로 바꾼다.
 
     mode: "P"(문체 지시만) / "R"(본인 글 예시만) / "P+R". 공통 규칙은 항상 들어간다.
@@ -152,9 +156,9 @@ def convert_style(text: str, user: str, mode: str = "P+R", *, examples: list[dic
             used = [{"id": "dummy", "score": 0.0, "type": "예시", "text": "(데모용 가짜 예시)"}]
         else:
             used = retrieve_examples(text, user, exclude_doc_ids)
-    prompt = build_prompt(text, lines, used or None, version)
+    prompt = build_prompt(text, lines, used or None, version, boost)
     converted = dummy_output if dummy_output is not None else generate(prompt)
-    return {"converted": converted, "lines": lines, "examples": used, "mode": mode, "gate_mode": gate_mode, "prompt": prompt, "version": version}
+    return {"converted": converted, "lines": lines, "examples": used, "mode": mode, "gate_mode": gate_mode, "prompt": prompt, "version": version, "boost": boost}
 
 
 # ───────── 문체 판정 (Burrows' Delta, 기능 형태소 top100) ─────────
