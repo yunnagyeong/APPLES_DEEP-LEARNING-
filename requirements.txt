@@ -9,3 +9,4 @@ plotly
 
 # 분석 스크립트용 (evaluate_metrics.py)
 nltk
+scikit-learn

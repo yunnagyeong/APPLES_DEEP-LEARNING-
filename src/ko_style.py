@@ -2,7 +2,8 @@
 
 scripts/ko_style_transfer.py(평가 실험)와 app.py(데모)가 같은 코드를 쓰도록 모은 모듈입니다.
 - 문체 지시(P): 목표 인물별 한국어 지시 초안. 강희·나경 줄은 입력에 해당 기능(이유·대조·결론 표현)이
-  실제로 있을 때만 넣고(Kiwi 규칙, 모델 판단 아님, D-013), 수영 줄은 항상 넣는다.
+  실제로 있을 때만 넣고(Kiwi 규칙, 모델 판단 아님, D-013), 수영 문장 길이 줄은 항상 넣는다.
+- 프롬프트는 최소로 두고(D-059), 형식이 원문과 달라졌는지는 생성 뒤 규칙 검사로 잡는다(D-057).
 - 본인 글 예시(R): 목표 인물의 코퍼스에서 입력과 비슷한 글 k개(config.DEFAULT_TOP_K)를 검색해 붙인다.
   평가 실험은 학습용 코퍼스(LINGUA_CORPUS_SPLIT=train)와 exclude_doc_ids로 평가 문서를 빼고,
   데모는 전체 코퍼스를 그대로 쓴다.
@@ -27,15 +28,35 @@ SHORT_INPUT_NOTICE = "짧은 글은 문체 차이가 작게 나타납니다."
 COMMON_RULES = [
     "원문에 없는 내용을 더하거나, 있는 내용을 빼지 않는다.",
     "원문의 확신 정도(추측·단정·완곡)를 그대로 유지한다.",
-    "문장 수는 자유롭게 바꿔도 된다.",
+    "원문의 형식(줄글/목록·개조식)과 문단 나눔은 그대로 둔다.",
 ]
 # 목표 인물별 한국어 문체 지시 초안. 기능 이름이 있으면 입력에 그 기능이 있을 때만 넣는다(None은 항상).
-# D-049의 어휘·명사화 지시 후보는 실험 결과를 본 뒤에 추가한다(지금은 넣지 않음).
+# 수영 줄(D-059·D-061): 문장 길이를 실제 차이(문단당 0.5~1문장)에 맞춘 비례적 서술. 학습 문서 기준 d 어절/문장 +0.83.
+# 한자어+하다·피동 선택형 두 줄은 분류기 특징(하/XSV·되/XSV)과 겹쳐 상한을 떨어뜨려 뺐다(D-061).
 P_LINES = {
     "ganghee": [("reason", "이유를 나타낼 때는 '-므로'나 '그래서'로 잇는다.")],
     "nakyung": [("contrast", "대조를 나타낼 때는 '그러나'를 쓴다."), ("conclusion", "결론을 나타낼 때는 '따라서'를 쓴다.")],
-    "suyoung": [(None, "문장을 짧게 끊지 말고 길게 이어 쓴다.")],
+    "suyoung": [(None, "원문보다 문장을 조금 길게 잇는 편이다. 문단에 한두 군데 정도만 이웃한 문장을 잇는다.")],
 }
+# 옛 프롬프트(커밋 24ae462)와 새 프롬프트 두 판을 같은 조건에서 비교하기 위해 옛 문구를 남긴다(D-063). 기본은 "new".
+PROMPT_VERSIONS = ("old", "new")
+OLD_COMMON_RULES = [
+    "원문에 없는 내용을 더하거나, 있는 내용을 빼지 않는다.",
+    "원문의 확신 정도(추측·단정·완곡)를 그대로 유지한다.",
+    "문장 수는 자유롭게 바꿔도 된다.",
+]
+OLD_P_LINES = {**P_LINES, "suyoung": [(None, "문장을 짧게 끊지 말고 길게 이어 쓴다.")]}
+_OLD_HEAD = "다음 글을 한 필자의 문체로 다시 써 주세요. 뜻과 내용은 그대로 두세요."
+_NEW_HEAD = "다음 글을 한 필자의 문체로 다시 써 주세요."
+_OLD_EX = "아래는 이 필자가 쓴 다른 글입니다. 말투와 표현 방식만 참고하고, 내용은 가져오지 마세요."
+_NEW_EX = "아래는 이 필자가 쓴 다른 글입니다. 단어와 말투만 참고하고, 예시의 형식과 내용은 따르지 마세요."
+
+
+def _check_version(version: str) -> None:
+    if version not in PROMPT_VERSIONS:
+        raise ValueError(f"version은 {PROMPT_VERSIONS} 중 하나여야 합니다: {version!r}")
+
+
 # 입력에 기능이 있는지 판단(Kiwi 규칙, kiwipiepy가 없으면 정규식 근사). 모델이 아니라 규칙이 정한다(D-013).
 GATE_KIWI = {
     "reason": [("므로", None), ("으므로", None), ("그래서", "MAJ"), ("때문", None), ("니까", None), ("으니까", None), ("왜냐하면", "MAJ")],
@@ -69,19 +90,23 @@ def detect_functions(text: str):
     return {g for g, rx in GATE_REGEX.items() if re.search(rx, text)}, "regex"
 
 
-def p_lines_for(target: str, text: str):
+def p_lines_for(target: str, text: str, version: str = "new"):
     """(목표 인물에게 적용할 한국어 지시 줄 목록, 기능 판단 방식)."""
+    _check_version(version)
     present, mode = detect_functions(text)
-    return [line for fn, line in P_LINES[target] if fn is None or fn in present], mode
+    table = OLD_P_LINES if version == "old" else P_LINES
+    return [line for fn, line in table[target] if fn is None or fn in present], mode
 
 
-def build_prompt(text: str, lines: list[str], examples: list[dict] | None) -> str:
-    parts = ["다음 글을 한 필자의 문체로 다시 써 주세요. 뜻과 내용은 그대로 두세요.", "", "규칙:"]
-    parts += [f"{i}. {r}" for i, r in enumerate(COMMON_RULES, 1)]
+def build_prompt(text: str, lines: list[str], examples: list[dict] | None, version: str = "new") -> str:
+    _check_version(version)
+    old = version == "old"
+    parts = [_OLD_HEAD if old else _NEW_HEAD, "", "규칙:"]
+    parts += [f"{i}. {r}" for i, r in enumerate(OLD_COMMON_RULES if old else COMMON_RULES, 1)]
     if lines:
         parts += ["", "문체 지시:"] + [f"- {l}" for l in lines]
     if examples:
-        parts += ["", "아래는 이 필자가 쓴 다른 글입니다. 말투와 표현 방식만 참고하고, 내용은 가져오지 마세요."]
+        parts += ["", _OLD_EX if old else _NEW_EX]
         parts += [f"예시{i}: {e['text']}" for i, e in enumerate(examples, 1)]
     parts += ["", "원문:", text, "", "다시 쓴 글만 출력하세요. 설명이나 제목은 쓰지 마세요."]
     return "\n".join(parts)
@@ -102,20 +127,22 @@ def retrieve_examples(text: str, user: str, exclude_doc_ids: set[str] | None = N
 
 
 def convert_style(text: str, user: str, mode: str = "P+R", *, examples: list[dict] | None = None,
-                  exclude_doc_ids: set[str] | None = None, dummy_output: str | None = None) -> dict:
+                  exclude_doc_ids: set[str] | None = None, dummy_output: str | None = None,
+                  version: str = "new") -> dict:
     """text를 user의 문체로 바꾼다.
 
     mode: "P"(문체 지시만) / "R"(본인 글 예시만) / "P+R". 공통 규칙은 항상 들어간다.
     examples: 미리 검색해 둔 예시(평가 실험이 같은 검색 결과를 쓰려고 넘김). None이면 R일 때 여기서 검색한다.
     exclude_doc_ids: 검색에서 뺄 문서 id(평가 실험용). 데모는 None = 전체 코퍼스.
     dummy_output: 주면 검색·모델 호출 없이 이 문자열을 변환문으로 쓴다(데모 가짜 결과).
+    version: "new"(기본, 현재 프롬프트) / "old"(커밋 24ae462의 프롬프트, 두 판 비교용 D-063).
     반환: {"converted", "lines"(적용된 지시), "examples"(사용한 예시), "mode", "gate_mode", "prompt"}
     """
     if mode not in MODES:
         raise ValueError(f"mode는 {MODES} 중 하나여야 합니다: {mode!r}")
     if user not in P_LINES:
         raise ValueError(f"알 수 없는 사용자: {user!r}")
-    all_lines, gate_mode = p_lines_for(user, text)  # R만 쓸 때도 판단 방식은 기록
+    all_lines, gate_mode = p_lines_for(user, text, version)  # R만 쓸 때도 판단 방식은 기록
     lines = all_lines if "P" in mode else []
     used: list[dict] = []
     if "R" in mode:
@@ -125,9 +152,9 @@ def convert_style(text: str, user: str, mode: str = "P+R", *, examples: list[dic
             used = [{"id": "dummy", "score": 0.0, "type": "예시", "text": "(데모용 가짜 예시)"}]
         else:
             used = retrieve_examples(text, user, exclude_doc_ids)
-    prompt = build_prompt(text, lines, used or None)
+    prompt = build_prompt(text, lines, used or None, version)
     converted = dummy_output if dummy_output is not None else generate(prompt)
-    return {"converted": converted, "lines": lines, "examples": used, "mode": mode, "gate_mode": gate_mode, "prompt": prompt}
+    return {"converted": converted, "lines": lines, "examples": used, "mode": mode, "gate_mode": gate_mode, "prompt": prompt, "version": version}
 
 
 # ───────── 문체 판정 (Burrows' Delta, 기능 형태소 top100) ─────────
