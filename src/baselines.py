@@ -8,18 +8,15 @@ A·B는 생성 모델 호출 1번(+ B는 검색 임베딩 1번)이라 C보다 �
 """
 
 from . import config
-from .generate import _ensure_client, _format_examples
+from .gen_backend import generate_text
+from .generate import _format_examples
 from .retrieve import retrieve_similar
 from .retry import call_with_retry
 
 
 def _generate(prompt: str, label: str) -> str:
-    client = _ensure_client()
-    response = call_with_retry(
-        lambda: client.models.generate_content(model=config.GENERATION_MODEL, contents=prompt),
-        label=label,
-    )
-    return response.text.strip()
+    text = call_with_retry(lambda: generate_text(prompt), label=label)
+    return text.strip()
 
 
 def translate_zero_shot(korean_text: str) -> str:

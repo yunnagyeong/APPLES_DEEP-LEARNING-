@@ -112,6 +112,129 @@ DUMMY_OUTPUTS = {
 
 
 # ==================================================
+# 한→한 문체 변환 (src/ko_style.py, D-050)
+#   중립적인 한국어를 선택한 사람의 문체로 다시 씁니다. 생성만 하고 의미 검증은 하지 않습니다.
+#   RAG 예시는 전체 코퍼스에서 검색합니다(평가 실험 scripts/ko_style_transfer.py와 달리 평가 문서 제외 없음).
+# ==================================================
+TASK_EN = "한→영 번역"
+TASK_KO = "한→한 문체 변환"
+KO_MODES = {
+    "P+R": "P+R · 문체 지시 + 본인 글 예시",
+    "P": "P · 문체 지시만",
+    "R": "R · 본인 글 예시만",
+}
+DUMMY_KO_SOURCE = ("최근 AI가 쓴 글은 서로 비슷해지는 경향이 있습니다. 그러나 사람마다 글을 쓰는 방식은 다릅니다. "
+                   "이 차이는 말투에 그대로 드러나므로 번역에서도 지켜져야 합니다. 따라서 개인의 문체를 반영하는 변환이 필요합니다.")
+DUMMY_KO_OUTPUTS = {  # 가짜 결과(화면 확인용): 실제 모델 출력이 아님
+    "ganghee": "최근 AI가 쓴 글은 서로 비슷해지는 경향이 있다. 그러나 사람마다 글을 쓰는 방식은 다르며, "
+               "이 차이는 말투에 그대로 드러나므로 번역에서도 지켜져야 한다. 그래서 개인의 문체를 반영하는 변환이 필요하다.",
+    "nakyung": "최근 AI가 쓴 글은 서로 비슷해지는 경향이 있다. 그러나 사람마다 글을 쓰는 방식은 다르다. "
+               "이 차이는 말투에 그대로 드러나기에 번역에서도 지켜져야 한다. 따라서 개인의 문체를 반영하는 변환이 필요하다.",
+    "suyoung": "최근 AI가 쓴 글은 서로 비슷해지는 경향이 있지만 사람마다 글을 쓰는 방식은 다르고, "
+               "이 차이는 말투에 그대로 드러나는 것이어서 번역에서도 지켜져야 하며, 개인의 문체를 반영하는 변환이 필요하다.",
+}
+
+
+@st.cache_resource(show_spinner=False)
+def warm_up_ko():
+    """Kiwi를 미리 불러 둔다(한→한 모드의 기능 감지·문체 판정용)."""
+    from src import style_features as sf
+    sf._get_kiwi().tokenize("준비")
+    return True
+
+
+def run_ko_style(source, user, mode, use_dummy):
+    from src import ko_style
+    start = time.time()
+    dummy = None
+    if use_dummy:
+        dummy = DUMMY_KO_OUTPUTS[user] if source.strip() == DUMMY_KO_SOURCE else "[가짜 결과] " + source
+    r = ko_style.convert_style(source, user, mode, dummy_output=dummy)
+    r["seconds"] = time.time() - start
+    return r
+
+
+def render_ko_style(persona, use_dummy, mode):
+    from src import config, ko_style
+    user = PERSONAS[persona]
+    st.caption("AI가 쓴 듯한 평범한 한국어를 선택한 사람의 문체로 다시 씁니다. 생성만 하고 의미 검증은 하지 않으니, "
+               "변환문을 읽고 뜻이 같은지 직접 확인하세요.")
+    if config.CORPUS_SPLIT and not use_dummy:
+        st.warning(f"LINGUA_CORPUS_SPLIT={config.CORPUS_SPLIT}이 설정돼 있어 일부 글을 뺀 코퍼스로 검색합니다. "
+                   "데모는 전체 코퍼스를 써야 하니 이 환경변수를 지우고 다시 실행하세요.")
+
+    source = st.text_area("바꿀 한국어 글 (평범한 말투)", value=DUMMY_KO_SOURCE, height=200)
+    n_chars = len(source.strip())
+    st.caption(f"{n_chars:,}자")
+    if 0 < n_chars < ko_style.MIN_CHARS_FOR_STYLE_SCORE:
+        st.info(f"{ko_style.SHORT_INPUT_NOTICE} (1,000자 미만 · 문체 판정 점수는 1,000자 이상일 때만 표시합니다)")
+
+    if st.button("문체 변환 실행", type="primary", width="stretch", disabled=n_chars == 0):
+        try:
+            if not use_dummy:
+                warm_up_ko()
+            with st.spinner(f"{persona} 문체로 변환 중..."):
+                r = run_ko_style(source, user, mode, use_dummy)
+            r.update(persona=persona, source=source, dummy=use_dummy)
+            st.session_state["ko_result"] = r
+        except BaseException as e:  # API 키 없음(sys.exit) 포함
+            st.error("API 키 없음 (.env의 GOOGLE_API_KEY 확인)  — 사이드바에서 가짜 결과를 켜면 화면은 확인할 수 있어요"
+                     if isinstance(e, SystemExit) else f"{type(e).__name__}: {e}")
+
+    r = st.session_state.get("ko_result")
+    if not r:
+        st.info("글을 입력하고 버튼을 눌러 주세요.")
+        return
+
+    st.divider()
+    left, right = st.columns(2)
+    with left:
+        st.subheader("입력")
+        st.text_area("입력", r["source"], height=260, disabled=True, label_visibility="collapsed")
+    with right:
+        st.subheader(f"{r['persona']} 문체로 변환")
+        st.text_area("변환문", r["converted"], height=260, disabled=True, label_visibility="collapsed")
+        st.caption(("가짜 결과 · " if r["dummy"] else "") + f"{KO_MODES[r['mode']]} · {r['seconds']:.1f}초")
+
+    st.markdown("**적용된 문체 지시**")
+    if "P" not in r["mode"]:
+        st.caption("이 변환 방식은 문체 지시를 쓰지 않습니다.")
+    elif r["lines"]:
+        for line in r["lines"]:
+            st.markdown(f"- {line}")
+    else:
+        st.caption("이번 입력에는 적용된 문체 지시가 없습니다 (해당 표현이 입력에 없어서, 지시는 입력에 그 기능이 있을 때만 들어갑니다).")
+    with st.expander("항상 들어가는 공통 규칙"):
+        for i, rule in enumerate(ko_style.COMMON_RULES, 1):
+            st.markdown(f"{i}. {rule}")
+
+    if "R" in r["mode"]:
+        with st.expander(f"사용한 예시 {len(r['examples'])}개 ({r['persona']} 본인 글, 전체 코퍼스에서 검색)"):
+            for i, e in enumerate(r["examples"], 1):
+                st.markdown(f"**예시{i}** · {e.get('type') or ''} · 유사도 {e['score']:.2f}")
+                st.write(e["text"])
+
+    st.markdown("**문체 판정**")
+    if len(r["source"].strip()) < ko_style.MIN_CHARS_FOR_STYLE_SCORE:
+        st.caption(f"문체 판정 점수는 1,000자 이상일 때만 표시합니다 (현재 {len(r['source'].strip()):,}자).")
+        return
+    try:
+        warm_up_ko()
+        with st.spinner("문체 판정 계산 중... (처음 한 번은 기준 계산에 시간이 걸려요)"):
+            before = ko_style.style_judgment(r["source"])
+            after = ko_style.style_judgment(r["converted"])
+    except BaseException as e:
+        st.warning(f"문체 판정 계산 실패 ({type(e).__name__}: {e})")
+        return
+    names = {v: k for k, v in PERSONAS.items()}
+    df = pd.DataFrame({"입력": before["distances"], "변환문": after["distances"]}).rename(index=names).round(3)
+    st.dataframe(df, width="stretch")
+    st.caption(f"기능 형태소 Delta 거리(작을수록 그 사람 글에 가까움). 입력은 {names[before['nearest']]}, "
+               f"변환문은 {names[after['nearest']]} 쪽에 가장 가깝습니다. 지시에 쓴 표현(그러나·따라서·므로 등)은 뺀 값이며, "
+               "글 한 편(1,000자 이상) 기준의 참고값입니다. 소표본이라 방향만 보세요.")
+
+
+# ==================================================
 # AI 클리셰 사전 (팀 공용: src/cliches.py, evaluate_metrics.py와 같은 사전)
 # ==================================================
 from src.cliches import ENGLISH_AI_CLICHES  # noqa: E402
@@ -212,18 +335,26 @@ def render_verification(detail):
 # ==================================================
 def main():
     st.title("Lingua Me")
-    st.caption("한국어 → 영어 개인화 번역 비교 및 AI 획일화 정량 지표 대시보드")
-
     with st.sidebar:
         st.header("설정")
-        persona = st.radio("누구 말투로 번역할까요?", list(PERSONAS))
+        task = st.radio("작업", [TASK_EN, TASK_KO])
+        persona = st.radio("누구 말투로 번역할까요?" if task == TASK_EN else "누구 문체로 바꿀까요?", list(PERSONAS))
+        ko_mode = "P+R"
+        if task == TASK_KO:
+            ko_mode = st.radio("변환 방식", list(KO_MODES), format_func=KO_MODES.get)
         use_dummy = st.toggle("데모용 가짜 결과 (API 호출 안 함)", value=False,
                               help="API 키 없이 화면만 확인할 때")
-        corpus = load_corpus(persona)
-        if corpus:
-            st.caption(f"{persona}의 실제 영어 글 {len(tokenize(corpus))}단어를 기준으로 비교합니다.")
-        else:
-            st.warning(f"data/eval/english_{PERSONAS[persona]}.jsonl 이 없어 스타일 기준 비교를 건너뜁니다.")
+        if task == TASK_EN:
+            corpus = load_corpus(persona)
+            if corpus:
+                st.caption(f"{persona}의 실제 영어 글 {len(tokenize(corpus))}단어를 기준으로 비교합니다.")
+            else:
+                st.warning(f"data/eval/english_{PERSONAS[persona]}.jsonl 이 없어 스타일 기준 비교를 건너뜁니다.")
+
+    if task == TASK_KO:
+        render_ko_style(persona, use_dummy, ko_mode)
+        return
+    st.caption("한국어 → 영어 개인화 번역 비교 및 AI 획일화 정량 지표 대시보드")
 
     source = st.text_area("한국어 원문", value=DUMMY_SOURCE, height=120)
 

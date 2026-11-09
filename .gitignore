@@ -6,3 +6,5 @@ __pycache__/
 data/style_profile_cache/
 data/failed_cases/
 .env
+.agents/
+.claude/

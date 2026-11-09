@@ -60,7 +60,15 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 # 아래 두 모델명은 이 스캐폴드를 만든 시점 기준이며, Google이 모델 라인업을 자주 바꾸므로
 # 에러가 나면 `python scripts/list_models.py`로 지금 쓸 수 있는 모델명을 먼저 확인하세요.
 EMBEDDING_MODEL = "gemini-embedding-001"
-GENERATION_MODEL = "gemini-3.5-flash-lite"  # 번역 생성(빠르고 저렴)
+# 번역 생성 모델. 크기별 비교 실험용으로 환경변수로 바꿀 수 있음(안 주면 기존과 같음):
+#   LINGUA_GENERATION_MODEL, LINGUA_GENERATION_BACKEND("gemini" 기본 | "openai" = OpenAI 호환 서버: Ollama·OpenRouter 등),
+#   LINGUA_OPENAI_BASE_URL, LINGUA_OPENAI_API_KEY, LINGUA_GENERATION_TEMPERATURE(비우면 모델 기본값)
+GENERATION_MODEL = os.getenv("LINGUA_GENERATION_MODEL", "gemini-3.5-flash-lite")  # 번역 생성(빠르고 저렴)
+GENERATION_BACKEND = os.getenv("LINGUA_GENERATION_BACKEND", "gemini").strip().lower()
+OPENAI_BASE_URL = os.getenv("LINGUA_OPENAI_BASE_URL", "http://localhost:11434/v1")
+OPENAI_API_KEY = os.getenv("LINGUA_OPENAI_API_KEY", "ollama")
+_temp = os.getenv("LINGUA_GENERATION_TEMPERATURE", "").strip()
+GENERATION_TEMPERATURE = float(_temp) if _temp else None
 # 의미 검증 판정 모델 (유료 API 기준)
 VERIFY_MODEL = "gemini-3.6-flash"
 # 판정 모델 한도가 끝났을 때 대신 쓸 모델. None이면 대체하지 않음(기본).

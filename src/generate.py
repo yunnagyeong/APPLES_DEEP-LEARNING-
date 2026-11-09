@@ -9,7 +9,8 @@ import sys
 
 from google import genai
 
-from . import config 
+from . import config
+from .gen_backend import generate_text
 
 from .retrieve import retrieve_similar  # 검색된 예시를 가져오는 함수
 from .retry import BACKOFF_FACTOR, INITIAL_DELAY, RETRY_ATTEMPTS, call_with_retry
@@ -328,11 +329,8 @@ Korean text to translate:
 Translated text in English:"""
 
     # 4. 생성 모델 호출
-    response = call_with_retry(
-        lambda: client.models.generate_content(
-            model=config.GENERATION_MODEL,
-            contents=prompt,
-        ),
+    response_text = call_with_retry(
+        lambda: generate_text(prompt),
         label="translate_with_style 생성 호출",
         attempts=attempts,
         initial_delay=initial_delay,
@@ -342,4 +340,4 @@ Translated text in English:"""
     # 번역문만 반환합니다. 검색 신뢰도 낮음 안내(_low_confidence_notice)를 번역문 앞에
     # 붙이면 검증(verify_translation)이 안내문까지 번역의 일부로 보고 가짜
     # UNSUPPORTED_ADDITION을 만들 수 있어서, 안내문은 호출하는 쪽에서 따로 붙입니다.
-    return response.text
+    return response_text
