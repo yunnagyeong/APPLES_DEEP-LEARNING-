@@ -23,6 +23,14 @@ def _split_info() -> dict[str, set[str]]:
     return {u["user"]: set(u["heldout_docs"]) for u in info["users"]}
 
 
+def _pair_docs() -> dict[str, set[str]]:
+    """짝 데이터(scripts/ko_pairs.py select)에 쓴 문서. 파일이 없으면 빈 값(기존 동작 그대로)."""
+    p = config.ROOT_DIR / "data/ko_pairs/selected.json"
+    if not p.exists():
+        return {}
+    return {u: set(v) for u, v in json.loads(p.read_text(encoding="utf-8"))["pair_docs"].items()}
+
+
 def _paragraphs(text: str) -> list[str]:
     return [p.strip() for p in text.split("\n\n") if MIN_C <= len(p.strip()) <= MAX_C]
 
@@ -31,6 +39,7 @@ def load_corpus(heldout: dict[str, set[str]] | None = None) -> dict:
     """{"train_docs": [{author, toks}], "train_paras": [(author, text)], "eval_paras": [(author, text)]}.
     train = essay·report 중 평가 문서가 아닌 것. eval_paras = 평가 문서 문단(시험·상한용)."""
     heldout = heldout or _split_info()
+    pair_docs = _pair_docs()
     out = {"train_docs": [], "train_paras": [], "eval_paras": []}
     for who in PEOPLE:
         for line in (config.RAW_DIR / f"corpus_{who}_raw.jsonl").open(encoding="utf-8"):
@@ -39,6 +48,8 @@ def load_corpus(heldout: dict[str, set[str]] | None = None) -> dict:
             o = json.loads(line)
             if o["id"] in heldout.get(who, set()):
                 out["eval_paras"] += [(who, p) for p in _paragraphs(o["text"])]
+            elif o["id"] in pair_docs.get(who, set()):
+                continue  # 짝 예시에 쓴 문서는 분류기 학습에서 뺌(D-081 문제 1). 모든 변형에 같은 분류기
             elif o.get("type") in ("essay", "report"):
                 out["train_docs"].append({"author": who, "toks": func_tokens(o["text"], False)})
                 out["train_paras"] += [(who, p) for p in _paragraphs(o["text"])]

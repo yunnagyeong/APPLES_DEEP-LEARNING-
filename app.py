@@ -113,7 +113,7 @@ DUMMY_OUTPUTS = {
 
 # ==================================================
 # 한→한 문체 변환 (src/ko_style.py, D-050)
-#   중립적인 한국어를 선택한 사람의 문체로 다시 씁니다. 생성만 하고 의미 검증은 하지 않습니다.
+#   중립적인 한국어를 선택한 사람의 문체로 다시 씁니다. 변환 뒤 규칙 기반 의미 점검(src/ko_verify)을 붙입니다.
 #   RAG 예시는 전체 코퍼스에서 검색합니다(평가 실험 scripts/ko_style_transfer.py와 달리 평가 문서 제외 없음).
 # ==================================================
 TASK_EN = "한→영 번역"
@@ -149,7 +149,7 @@ def run_ko_style(source, user, mode, use_dummy):
     dummy = None
     if use_dummy:
         dummy = DUMMY_KO_OUTPUTS[user] if source.strip() == DUMMY_KO_SOURCE else "[가짜 결과] " + source
-    r = ko_style.convert_style(source, user, mode, dummy_output=dummy)
+    r = ko_style.convert_style(source, user, mode, dummy_output=dummy, verify=True)
     r["seconds"] = time.time() - start
     return r
 
@@ -157,8 +157,8 @@ def run_ko_style(source, user, mode, use_dummy):
 def render_ko_style(persona, use_dummy, mode):
     from src import config, ko_style
     user = PERSONAS[persona]
-    st.caption("AI가 쓴 듯한 평범한 한국어를 선택한 사람의 문체로 다시 씁니다. 생성만 하고 의미 검증은 하지 않으니, "
-               "변환문을 읽고 뜻이 같은지 직접 확인하세요.")
+    st.caption("AI가 쓴 듯한 평범한 한국어를 선택한 사람의 문체로 다시 씁니다. 변환 뒤 규칙으로 뜻 유지를 점검하지만(AI 판단 아님), "
+               "점검은 보조이니 변환문을 읽고 뜻이 같은지 직접 확인하세요.")
     if config.CORPUS_SPLIT and not use_dummy:
         st.warning(f"LINGUA_CORPUS_SPLIT={config.CORPUS_SPLIT}이 설정돼 있어 일부 글을 뺀 코퍼스로 검색합니다. "
                    "데모는 전체 코퍼스를 써야 하니 이 환경변수를 지우고 다시 실행하세요.")
@@ -196,14 +196,22 @@ def render_ko_style(persona, use_dummy, mode):
         st.text_area("변환문", r["converted"], height=260, disabled=True, label_visibility="collapsed")
         st.caption(("가짜 결과 · " if r["dummy"] else "") + f"{KO_MODES[r['mode']]} · {r['seconds']:.1f}초")
 
-    st.markdown("**적용된 문체 지시**")
-    if "P" not in r["mode"]:
-        st.caption("이 변환 방식은 문체 지시를 쓰지 않습니다.")
-    elif r["lines"]:
-        for line in r["lines"]:
+    v = r.get("verify")
+    if v:
+        from src import ko_verify
+        icon = {"PASS": "✅", "REVIEW": "⚠️", "FAIL": "❌"}.get(v["verdict"], "")
+        msg = f"{icon} 의미 점검: {ko_verify.summarize(v)}"
+        (st.success if v["verdict"] == "PASS" else st.error if v["verdict"] == "FAIL" else st.warning)(msg)
+        if v["issues"]:
+            with st.expander(f"점검 항목 {len(v['issues'])}개"):
+                for i in v["issues"]:
+                    st.markdown(f"- [{i['severity']}] **{i['label_ko']}** · {i['note']}" + (f" — `{i['evidence']}`" if i.get("evidence") else ""))
+            st.caption("REVIEW는 뜻이 바뀌었을 수 있다는 표시이지 오류 확정이 아닙니다. 사람이 확인하세요.")
+
+    if "P" in r["mode"]:  # 지금 데모는 R만 쓰므로 표시되지 않음(이전 방식 호환용)
+        st.markdown("**적용된 문체 지시**")
+        for line in r["lines"] or ["(이번 입력에 적용된 지시 없음)"]:
             st.markdown(f"- {line}")
-    else:
-        st.caption("이번 입력에는 적용된 문체 지시가 없습니다 (해당 표현이 입력에 없어서, 지시는 입력에 그 기능이 있을 때만 들어갑니다).")
     with st.expander("항상 들어가는 공통 규칙"):
         for i, rule in enumerate(ko_style.COMMON_RULES, 1):
             st.markdown(f"{i}. {rule}")
@@ -339,9 +347,7 @@ def main():
         st.header("설정")
         task = st.radio("작업", [TASK_EN, TASK_KO])
         persona = st.radio("누구 말투로 번역할까요?" if task == TASK_EN else "누구 문체로 바꿀까요?", list(PERSONAS))
-        ko_mode = "P+R"
-        if task == TASK_KO:
-            ko_mode = st.radio("변환 방식", list(KO_MODES), format_func=KO_MODES.get)
+        ko_mode = "R"  # 한→한은 본인 글 예시(RAG)만, 문체 지시 없음 (수영 결정 11/12, D-096)
         use_dummy = st.toggle("데모용 가짜 결과 (API 호출 안 함)", value=False,
                               help="API 키 없이 화면만 확인할 때")
         if task == TASK_EN:

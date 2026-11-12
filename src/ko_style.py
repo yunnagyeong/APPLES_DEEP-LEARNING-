@@ -50,6 +50,9 @@ _OLD_HEAD = "다음 글을 한 필자의 문체로 다시 써 주세요. 뜻과 
 _NEW_HEAD = "다음 글을 한 필자의 문체로 다시 써 주세요."
 _OLD_EX = "아래는 이 필자가 쓴 다른 글입니다. 말투와 표현 방식만 참고하고, 내용은 가져오지 마세요."
 _NEW_EX = "아래는 이 필자가 쓴 다른 글입니다. 단어와 말투만 참고하고, 예시의 형식과 내용은 따르지 마세요."
+# 짝 예시(D-078·D-080): 같은 내용을 AI가 쓴 글과 이 필자가 쓴 글을 나란히 보여 줘 "어떻게 고쳐 쓰는지"를 보여 준다
+_PAIR_EX = ("아래는 같은 내용을 AI가 쓴 글과 이 필자가 직접 쓴 글을 나란히 놓은 예입니다. "
+            "AI 글과 비교해 이 필자가 단어·어미·조사·연결 표현을 어떻게 다르게 쓰는지만 참고하고, 예시의 내용과 형식은 따르지 마세요.")
 
 
 def _check_version(version: str) -> None:
@@ -109,7 +112,11 @@ def build_prompt(text: str, lines: list[str], examples: list[dict] | None, versi
     parts += [f"{i}. {r}" for i, r in enumerate(rules, 1)]
     if lines:
         parts += ["", "문체 지시:"] + [f"- {l}" for l in lines]
-    if examples:
+    if examples and all("ai" in e for e in examples):
+        parts += ["", _PAIR_EX]
+        for i, e in enumerate(examples, 1):
+            parts += [f"예시{i}", f"[AI가 쓴 글] {e['ai']}", f"[이 필자가 쓴 글] {e['text']}"]
+    elif examples:
         parts += ["", _OLD_EX if old else _NEW_EX]
         parts += [f"예시{i}: {e['text']}" for i, e in enumerate(examples, 1)]
     parts += ["", "원문:", text, "", "다시 쓴 글만 출력하세요. 설명이나 제목은 쓰지 마세요."]
@@ -130,17 +137,18 @@ def retrieve_examples(text: str, user: str, exclude_doc_ids: set[str] | None = N
     return [{"id": x["id"], "score": round(float(x["score"]), 4), "type": x.get("type"), "text": x["text"]} for x in ex]
 
 
-def convert_style(text: str, user: str, mode: str = "P+R", *, examples: list[dict] | None = None,
+def convert_style(text: str, user: str, mode: str = "R", *, examples: list[dict] | None = None,
                   exclude_doc_ids: set[str] | None = None, dummy_output: str | None = None,
-                  version: str = "new", boost: bool = False) -> dict:
+                  version: str = "new", boost: bool = False, verify: bool = False) -> dict:
     """text를 user의 문체로 바꾼다.
 
-    mode: "P"(문체 지시만) / "R"(본인 글 예시만) / "P+R". 공통 규칙은 항상 들어간다.
+    mode: "R"(본인 글 예시만, 기본 — 문체 지시 없이 RAG만 쓰기로 함, D-096) / "P"(문체 지시만) / "P+R"(실험 비교용으로만 남김). 공통 규칙은 항상 들어간다.
     examples: 미리 검색해 둔 예시(평가 실험이 같은 검색 결과를 쓰려고 넘김). None이면 R일 때 여기서 검색한다.
     exclude_doc_ids: 검색에서 뺄 문서 id(평가 실험용). 데모는 None = 전체 코퍼스.
     dummy_output: 주면 검색·모델 호출 없이 이 문자열을 변환문으로 쓴다(데모 가짜 결과).
     version: "new"(기본, 현재 프롬프트) / "old"(커밋 24ae462의 프롬프트, 두 판 비교용 D-063).
-    반환: {"converted", "lines"(적용된 지시), "examples"(사용한 예시), "mode", "gate_mode", "prompt"}
+    verify: True면 규칙 기반 의미 검증(src/ko_verify, 강희)을 돌려 r["verify"]에 넣는다(API 호출 없음). 변환문을 바꾸지 않고 판정만 붙인다.
+    반환: {"converted", "lines"(적용된 지시), "examples"(사용한 예시), "mode", "gate_mode", "prompt", "verify"(verify=True일 때)}
     """
     if mode not in MODES:
         raise ValueError(f"mode는 {MODES} 중 하나여야 합니다: {mode!r}")
@@ -158,7 +166,11 @@ def convert_style(text: str, user: str, mode: str = "P+R", *, examples: list[dic
             used = retrieve_examples(text, user, exclude_doc_ids)
     prompt = build_prompt(text, lines, used or None, version, boost)
     converted = dummy_output if dummy_output is not None else generate(prompt)
-    return {"converted": converted, "lines": lines, "examples": used, "mode": mode, "gate_mode": gate_mode, "prompt": prompt, "version": version, "boost": boost}
+    r = {"converted": converted, "lines": lines, "examples": used, "mode": mode, "gate_mode": gate_mode, "prompt": prompt, "version": version, "boost": boost}
+    if verify:
+        from . import ko_verify
+        r["verify"] = ko_verify.verify(text, converted, used or None)
+    return r
 
 
 # ───────── 문체 판정 (Burrows' Delta, 기능 형태소 top100) ─────────

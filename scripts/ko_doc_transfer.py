@@ -29,7 +29,7 @@ from src import ko_style
 from src.ko_style import PEOPLE
 import ko_style_transfer as kst  # read_jsonl, run_commit, model_info, is_429, heldout_docs 재사용
 
-CONDS = ["P", "R", "P+R"]
+CONDS = ["P", "R", "P+R"]  # gen 기본값은 R만(문체 지시 없이 RAG만, D-096). P·P+R은 --conds로 비교할 때만
 IN_DIR, OUT_DIR = ROOT / "data" / "ko_docs", ROOT / "results" / "ko_doc"
 MIN_CHARS = 2000
 SHORT = {"ganghee": "강희", "nakyung": "나경", "suyoung": "수영"}
@@ -61,9 +61,47 @@ def expand_example(ex, user, n):
     return {**ex, "id": "+".join(parts), "text": "\n".join(texts)}
 
 
-def retrieve(text, user, k, expand):
+def input_meta():
+    """scripts/ko_make_inputs.py가 남긴 입력 글의 출처(주제를 가져온 코퍼스 문서). 없으면 빈 값."""
+    p = IN_DIR / "meta.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def source_exclude(doc_name, user):
+    """입력 주제의 출처 문서가 목표 사람의 글이면 검색에서 뺀다(같은 내용의 원문을 예시로 받아 베끼는 것 방지)."""
+    m = input_meta().get(doc_name)
+    return {m["doc"]} if m and m["person"] == user else set()
+
+
+_PAIR_EMB = {}
+
+
+def retrieve_pairs(text, user, k, exclude):
+    """짝 예시(data/ko_pairs/pairs_<사람>.jsonl, 검증 통과분)에서 입력과 AI 쪽이 비슷한 짝 k개. 임베딩은 캐시."""
+    import hashlib
+    import numpy as np
+    from src.embeddings import embed_text, embed_texts
+    pairs = kst.read_jsonl(ROOT / "data" / "ko_pairs" / f"pairs_{user}.jsonl")
+    pairs = [p for p in pairs if p["doc"] not in exclude]
+    if not pairs: sys.exit(f"[중단] {user}의 짝 예시가 없습니다(scripts/ko_pairs.py check 먼저).")
+    cache_p = ROOT / "data" / "ko_pairs" / "emb_cache.json"
+    if not _PAIR_EMB and cache_p.exists(): _PAIR_EMB.update(json.loads(cache_p.read_text(encoding="utf-8")))
+    h = lambda t: hashlib.sha1(t.encode("utf-8")).hexdigest()[:16]
+    need = [p for p in pairs if h(p["ai"]) not in _PAIR_EMB]
+    if need:
+        for p, v in zip(need, embed_texts([p["ai"] for p in need])): _PAIR_EMB[h(p["ai"])] = v
+        cache_p.write_text(json.dumps(_PAIR_EMB), encoding="utf-8")
+    q = np.array(embed_text(text[:2000], task_type="RETRIEVAL_QUERY"))
+    sc = [(float(np.dot(q, v) / (np.linalg.norm(q) * np.linalg.norm(v))), p) for p in pairs for v in [np.array(_PAIR_EMB[h(p["ai"])])]]
+    sc.sort(key=lambda x: -x[0])
+    return [{"id": p["pair_id"], "score": round(s, 4), "type": "짝", "text": p["original"], "ai": p["ai"]} for s, p in sc[:k]]
+
+
+def retrieve(text, user, k, expand, exclude=frozenset(), pairs=False):
+    if pairs:
+        return retrieve_pairs(text, user, k, set(exclude) | kst.heldout_docs(user))
     from src.retrieve import retrieve_similar
-    ex = retrieve_similar(text[:2000], user, k=k, exclude_doc_ids=kst.heldout_docs(user))
+    ex = retrieve_similar(text[:2000], user, k=k, exclude_doc_ids=kst.heldout_docs(user) | set(exclude))
     bad = [x["id"] for x in ex if x["id"].rsplit("_", 1)[0] in kst.heldout_docs(user)]
     if bad: sys.exit(f"[중단] 평가 문서가 RAG에 섞임: {bad}")
     ex = [{"id": x["id"], "score": round(float(x["score"]), 4), "type": x.get("type"), "text": x["text"]} for x in ex]
@@ -79,9 +117,9 @@ def gen(a):
     GEN, RET = out / "gen.jsonl", out / "retrieved.json"
     ret = json.loads(RET.read_text(encoding="utf-8")) if RET.exists() else {}
     done = {(r["set"], r["doc"], r["target"], r["cond"]) for r in kst.read_jsonl(GEN) if r.get("output") and not r.get("error")}
-    todo = [(d, t, c) for d in docs for t in PEOPLE for c in CONDS if (a.set, d, t, c) not in done]
+    todo = [(d, t, c) for d in docs for t in PEOPLE for c in a.conds if (a.set, d, t, c) not in done]
     calls = len(todo) * (len(paragraphs(next(iter(docs.values())))) if a.unit == "para" else 1)
-    cfg = dict(unit=a.unit, k=a.k, expand=a.expand, boost=a.boost, version="new")
+    cfg = dict(unit=a.unit, k=a.k, expand=a.expand, boost=a.boost, pairs=a.pairs, version="new")
     commit, info = kst.run_commit(), (kst.model_info() if not a.dry else {})
     print(f"[변형 {a.variant}] {cfg} / 커밋 {commit} / 남은 (글,목표,조건) {len(todo)}개 (대략 호출 {calls}회 안팎)")
     if a.dry:
@@ -89,14 +127,15 @@ def gen(a):
         text = docs[d]; unit = paragraphs(text)[0] if a.unit == "para" else text
         lines, mode = ko_style.p_lines_for(t, unit)
         ex = [{"text": f"(예시 본문 — {t}의 학습용 글 {a.k}개{'(+이웃 청크 ' + str(a.expand) + ')' if a.expand else ''})"}] if "R" in c else None
+        if ex and a.pairs: ex = [{"ai": "(AI가 다시 쓴 문단)", "text": f"({t}이 실제로 쓴 같은 문단)"}] * a.k
         print(f"=== {d} → {t} · {c} · 지시 {len(lines)}줄 (판단: {mode}) ===")
         print(ko_style.build_prompt(unit if len(unit) < 600 else unit[:600] + "…", lines if "P" in c else [], ex, "new", a.boost)); return
     consec = 0
     with GEN.open("a", encoding="utf-8") as f:
         for d, t, c in todo:
-            key = f"{a.set}|{d}|{t}|{a.k}|{a.expand}"
+            key = f"{a.set}|{d}|{t}|{a.k}|{a.expand}" + ("|pairs" if a.pairs else "")
             if key not in ret:
-                try: ret[key] = retrieve(docs[d], t, a.k, a.expand)
+                try: ret[key] = retrieve(docs[d], t, a.k, a.expand, source_exclude(d, t), a.pairs)
                 except Exception as e: sys.exit(f"[중단] 검색 실패({key}): {type(e).__name__}: {str(e)[:200]}")
                 RET.write_text(json.dumps(ret, ensure_ascii=False, indent=1), encoding="utf-8")
             rec = {"variant": a.variant, "set": a.set, "doc": d, "target": t, "cond": c, "chars": len(docs[d]), "commit": commit, **cfg, **info}
@@ -141,7 +180,7 @@ def best_assignment(S):
 
 
 def report(a):
-    from src import ko_classify as kc, ko_format
+    from src import ko_classify as kc, ko_format, ko_verify
     if not ko_style._kiwi(): sys.exit("[중단] kiwipiepy가 필요합니다(Mac의 .venv에서 실행).")
     docs = load_inputs(a.set)
     variants = a.variant or sorted(p.name for p in OUT_DIR.iterdir() if (p / "gen.jsonl").exists())
@@ -154,16 +193,17 @@ def report(a):
     for v in variants:
         recs = {(r["doc"], r["target"], r["cond"]): r for r in kst.read_jsonl(OUT_DIR / v / "gen.jsonl")
                 if r.get("set") == a.set and r.get("output") and not r.get("error") and r["doc"] in docs}
-        ds = [d for d in docs if all((d, t, c) in recs for t in PEOPLE for c in CONDS)]
+        conds = [c for c in CONDS if any(k[2] == c for k in recs)]  # 이 변형에서 실제로 돌린 조건만
+        ds = [d for d in docs if all((d, t, c) in recs for t in PEOPLE for c in conds)]
         if not ds: print(f"\n[변형 {v}] 완성된 글 없음"); continue
         cfg = next(iter(recs.values()))
         print(f"\n=== 변형 {v}: 글 {len(ds)}/{len(docs)}편 완성 | unit={cfg.get('unit')} k={cfg.get('k')} expand={cfg.get('expand')} boost={cfg.get('boost')} 모델={cfg.get('model')} 커밋={cfg.get('commit')} ===")
-        keys = [(d, t, c) for d in ds for t in PEOPLE for c in CONDS]
+        keys = [(d, t, c) for d in ds for t in PEOPLE for c in conds]
         out_sc = clf.scores([recs[k]["output"] for k in keys]); out_pred = clf.predict([recs[k]["output"] for k in keys])
         pos = {k: i for i, k in enumerate(keys)}
         fmt = {k: doc_format(docs[k[0]], recs[k]["output"], ko_format) for k in keys}
         print(f"{'조건':<5}{'배정SVM':<14}{'배정Delta':<14}{'argmaxSVM':<14}{'argmaxDelta':<14}{'형식통과':<10}{'형식통과 세트만 배정SVM':<24}{'기능형태소 변화율'}")
-        for c in CONDS:
+        for c in conds:
             res = {}
             for m in ("SVM", "Delta"):
                 ok = tot = 0; ok_p = tot_p = 0
@@ -182,6 +222,25 @@ def report(a):
             def cell(x, y): return f"{x}/{y} ({x / y:.2f})" if y else "-"
             fp_s = f"{fp}/{n}"
             print(f"{c:<5}{cell(sv[0], sv[1]):<14}{cell(de[0], de[1]):<14}{cell(am['SVM'], n):<14}{cell(am['Delta'], n):<14}{fp_s:<10}{cell(sv[2], sv[3]):<24}{fc:.3f}")
+        # 의미 검증(강희 ko_verify, 규칙 기반·API 없음): 예시 본문은 retrieved.json에서 찾는다
+        ret = json.loads((OUT_DIR / v / "retrieved.json").read_text(encoding="utf-8")) if (OUT_DIR / v / "retrieved.json").exists() else {}
+        ver = {}
+        for k in keys:
+            r_ = recs[k]; rk = f"{a.set}|{k[0]}|{k[1]}|{r_.get('k')}|{r_.get('expand')}" + ("|pairs" if r_.get("pairs") else "")
+            ver[k] = ko_verify.verify(docs[k[0]], r_["output"], ret.get(rk))
+        print("\n  의미 검증 (규칙 기반, 판정은 보조 — 사람이 확인): PASS/REVIEW/FAIL · 입력 그대로(unchanged) · 엄격 배정(세 출력 모두 PASS인 글만, SVM)")
+        for c in conds:
+            vs = Counter(ver[(d, t, c)]["verdict"] for d in ds for t in PEOPLE)
+            un = sum(bool(ver[(d, t, c)]["stats"].get("unchanged")) for d in ds for t in PEOPLE)
+            okd = [d for d in ds if all(ver[(d, t, c)]["verdict"] == "PASS" for t in PEOPLE)]
+            hit = 0
+            for d in okd:
+                S = {t: {p: out_sc["SVM"][pos[(d, t, c)]][p] - in_sc["SVM"][in_idx[d]][p] for p in PEOPLE} for t in PEOPLE}
+                perm = best_assignment(S); hit += sum(perm[t] == t for t in PEOPLE)
+            n = 3 * len(ds)
+            print(f"  {c:<5}PASS {vs['PASS']}/{n} REVIEW {vs['REVIEW']}/{n} FAIL {vs['FAIL']}/{n} | unchanged {un}/{n} | 엄격 배정 {hit}/{3 * len(okd)}" + (f" ({hit / (3 * len(okd)):.2f}, 글 {len(okd)}편)" if okd else " (모두 PASS인 글 없음)"))
+        for k, x in ver.items():
+            if x["verdict"] != "PASS": print(f"    {x['verdict']} {k[0]}→{SHORT[k[1]]} {k[2]}: {ko_verify.summarize(x)}"[:220])
         flagged = [(k, w) for k, (ok, w) in fmt.items() if not ok]
         print(f"  형식 표시 {len(flagged)}/{len(keys)}건" + (": " + "; ".join(f"{k[0]}→{SHORT[k[1]]} {k[2]} {'/'.join(w)}" for k, w in flagged[:8]) + (" …" if len(flagged) > 8 else "") if flagged else ""))
     print("\n읽는 법: 우연 = 1/3. 배정 지표는 같은 글의 세 출력을 서로 다른 사람에게 배정하는 방식이라 분류기가 한 사람으로 쏠려도 영향을 덜 받음(D-072). "
@@ -197,5 +256,7 @@ if __name__ == "__main__":
     g = sp.add_parser("gen"); g.add_argument("--set", default="select", choices=["select", "confirm"]); g.add_argument("--variant", required=True)
     g.add_argument("--unit", choices=["doc", "para"], default="doc"); g.add_argument("--k", type=int, default=4); g.add_argument("--expand", type=int, default=0)
     g.add_argument("--boost", action="store_true"); g.add_argument("--dry", action="store_true")
+    g.add_argument("--pairs", action="store_true", help="R 예시를 짝 예시(AI 글 ↔ 이 필자의 글)로 (D-078)")
+    g.add_argument("--conds", nargs="+", choices=CONDS, default=["R"], help="돌릴 조건(기본 R만, D-096)")
     r = sp.add_parser("report"); r.add_argument("--set", default="select", choices=["select", "confirm"]); r.add_argument("--variant", nargs="*")
     a = ap.parse_args(); {"gen": gen, "report": report}[a.cmd](a)
