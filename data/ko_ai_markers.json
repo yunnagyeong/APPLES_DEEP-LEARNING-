@@ -1,0 +1,160 @@
+{
+ "reviewed": false,
+ "n_pairs": 57,
+ "method": "AI 재작성 ↔ 같은 내용 사람 원문 짝, log-odds z ≥ 1.6, AI 빈도 ≥ 8, AI가 더 많은 짝 ≥ 6, 사람 빈도 ≤ AI/2, 명사·숫자·외국어·일반 동사/형용사 제외",
+ "markers": [
+  {
+   "unit": "ᆸ니다/EF",
+   "label": "-ᆸ니다",
+   "kind": "register",
+   "z": 4.47,
+   "ai": 41,
+   "human": 4,
+   "pairs_ai_more": 15
+  },
+  {
+   "unit": "습니다/EF",
+   "label": "-습니다",
+   "kind": "register",
+   "z": 4.28,
+   "ai": 40,
+   "human": 2,
+   "pairs_ai_more": 15
+  },
+  {
+   "unit": "어/EC 지/VX",
+   "label": "-어지",
+   "kind": "ai_marker",
+   "z": 3.04,
+   "ai": 20,
+   "human": 3,
+   "pairs_ai_more": 17
+  },
+  {
+   "unit": "면서/EC",
+   "label": "-면서",
+   "kind": "ai_marker",
+   "z": 2.86,
+   "ai": 17,
+   "human": 2,
+   "pairs_ai_more": 14
+  },
+  {
+   "unit": "이/MM",
+   "label": "이",
+   "kind": "ai_marker",
+   "z": 2.79,
+   "ai": 30,
+   "human": 11,
+   "pairs_ai_more": 20
+  },
+  {
+   "unit": "이나/JC",
+   "label": "-이나",
+   "kind": "ai_marker",
+   "z": 2.61,
+   "ai": 19,
+   "human": 5,
+   "pairs_ai_more": 15
+  },
+  {
+   "unit": "도록/EC",
+   "label": "-도록",
+   "kind": "ai_marker",
+   "z": 2.32,
+   "ai": 12,
+   "human": 2,
+   "pairs_ai_more": 8
+  },
+  {
+   "unit": "여러/MM",
+   "label": "여러",
+   "kind": "ai_marker",
+   "z": 2.31,
+   "ai": 11,
+   "human": 1,
+   "pairs_ai_more": 7
+  },
+  {
+   "unit": "다시/MAG",
+   "label": "다시",
+   "kind": "ai_marker",
+   "z": 2.05,
+   "ai": 10,
+   "human": 2,
+   "pairs_ai_more": 8
+  },
+  {
+   "unit": "어/EC 보/VX",
+   "label": "-어보",
+   "kind": "ai_marker",
+   "z": 1.96,
+   "ai": 11,
+   "human": 3,
+   "pairs_ai_more": 8
+  },
+  {
+   "unit": "직접/MAG",
+   "label": "직접",
+   "kind": "ai_marker",
+   "z": 1.9,
+   "ai": 9,
+   "human": 2,
+   "pairs_ai_more": 7
+  },
+  {
+   "unit": "역시/MAG",
+   "label": "역시",
+   "kind": "ai_marker",
+   "z": 1.75,
+   "ai": 12,
+   "human": 0,
+   "pairs_ai_more": 11
+  },
+  {
+   "unit": "었/EP 으며/EC",
+   "label": "-었으며",
+   "kind": "ai_marker",
+   "z": 1.73,
+   "ai": 8,
+   "human": 2,
+   "pairs_ai_more": 7
+  },
+  {
+   "unit": "으나/EC",
+   "label": "-으나",
+   "kind": "ai_marker",
+   "z": 1.73,
+   "ai": 8,
+   "human": 2,
+   "pairs_ai_more": 7
+  },
+  {
+   "unit": "처럼/JKB",
+   "label": "-처럼",
+   "kind": "ai_marker",
+   "z": 1.62,
+   "ai": 15,
+   "human": 7,
+   "pairs_ai_more": 9
+  },
+  {
+   "unit": "함께/MAG",
+   "label": "함께",
+   "kind": "ai_marker",
+   "z": 1.61,
+   "ai": 9,
+   "human": 3,
+   "pairs_ai_more": 8
+  },
+  {
+   "unit": "게다가/MAG",
+   "label": "게다가",
+   "kind": "ai_marker",
+   "z": 1.6,
+   "ai": 10,
+   "human": 0,
+   "pairs_ai_more": 10
+  }
+ ]
+}

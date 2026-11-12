@@ -19,7 +19,7 @@ SVM_NGRAM, SVM_MIN_DF = (1, 2), 2
 
 
 def _split_info() -> dict[str, set[str]]:
-    info = json.loads((config.ROOT_DIR / "data/eval/split_info.json").read_text(encoding="utf-8"))
+    info = json.loads(config.SPLIT_INFO_PATH.read_text(encoding="utf-8"))
     return {u["user"]: set(u["heldout_docs"]) for u in info["users"]}
 
 

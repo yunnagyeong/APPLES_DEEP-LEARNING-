@@ -20,7 +20,11 @@ from functools import lru_cache
 
 from . import config
 
-PEOPLE = ["ganghee", "nakyung", "suyoung"]
+# 기본은 우리 세 명. 새 인물 코퍼스 실험은 LINGUA_PEOPLE=a,b,c (data/raw/corpus_<id>_raw.jsonl 필요, D-097)
+import os as _os
+PEOPLE = [p.strip() for p in _os.getenv("LINGUA_PEOPLE", "ganghee,nakyung,suyoung").split(",") if p.strip()]
+# 데모 전용 문체 옵션(평가·분류기에는 넣지 않음). data/raw/corpus_<id>_raw.jsonl + 예시·색인이 있어야 함. blog = 블로그 코퍼스(11/12)
+DEMO_STYLES = ["blog"]
 MODES = ("P", "R", "P+R")
 MIN_CHARS_FOR_STYLE_SCORE = 1000
 SHORT_INPUT_NOTICE = "짧은 글은 문체 차이가 작게 나타납니다."
@@ -98,6 +102,8 @@ def p_lines_for(target: str, text: str, version: str = "new"):
     _check_version(version)
     present, mode = detect_functions(text)
     table = OLD_P_LINES if version == "old" else P_LINES
+    if target not in table:  # 새 인물은 지시(P)가 없음 — R만 쓰므로 빈 값
+        return [], mode
     return [line for fn, line in table[target] if fn is None or fn in present], mode
 
 
@@ -152,8 +158,10 @@ def convert_style(text: str, user: str, mode: str = "R", *, examples: list[dict]
     """
     if mode not in MODES:
         raise ValueError(f"mode는 {MODES} 중 하나여야 합니다: {mode!r}")
-    if user not in P_LINES:
-        raise ValueError(f"알 수 없는 사용자: {user!r}")
+    if user not in PEOPLE and user not in DEMO_STYLES:
+        raise ValueError(f"알 수 없는 사용자: {user!r} (LINGUA_PEOPLE={PEOPLE}, 데모 문체={DEMO_STYLES})")
+    if "P" in mode and user not in P_LINES:
+        raise ValueError(f"{user!r}는 문체 지시(P)가 없습니다. mode=\"R\"만 쓸 수 있습니다.")
     all_lines, gate_mode = p_lines_for(user, text, version)  # R만 쓸 때도 판단 방식은 기록
     lines = all_lines if "P" in mode else []
     used: list[dict] = []

@@ -210,13 +210,13 @@ def report(a):
                 for d in ds:
                     S = {t: {p: out_sc[m][pos[(d, t, c)]][p] - in_sc[m][in_idx[d]][p] for p in PEOPLE} for t in PEOPLE}
                     perm = best_assignment(S); hit = sum(perm[t] == t for t in PEOPLE)
-                    ok += hit; tot += 3
-                    if all(fmt[(d, t, c)][0] for t in PEOPLE): ok_p += hit; tot_p += 3
+                    ok += hit; tot += len(PEOPLE)
+                    if all(fmt[(d, t, c)][0] for t in PEOPLE): ok_p += hit; tot_p += len(PEOPLE)
                 res[m] = (ok, tot, ok_p, tot_p)
             am = {m: sum(out_pred[m][pos[(d, t, c)]] == t for d in ds for t in PEOPLE) for m in ("SVM", "Delta")}
             fp = sum(fmt[(d, t, c)][0] for d in ds for t in PEOPLE)
-            fc = sum(func_change(docs[d], recs[(d, t, c)]["output"]) for d in ds for t in PEOPLE) / (3 * len(ds))
-            n = 3 * len(ds)
+            fc = sum(func_change(docs[d], recs[(d, t, c)]["output"]) for d in ds for t in PEOPLE) / (len(PEOPLE) * len(ds))
+            n = len(PEOPLE) * len(ds)
             rows[(v, c)] = (res["SVM"][0] / n, res["Delta"][0] / n, am["SVM"] / n, fp / n, fc)
             sv, de = res["SVM"], res["Delta"]
             def cell(x, y): return f"{x}/{y} ({x / y:.2f})" if y else "-"
@@ -237,12 +237,12 @@ def report(a):
             for d in okd:
                 S = {t: {p: out_sc["SVM"][pos[(d, t, c)]][p] - in_sc["SVM"][in_idx[d]][p] for p in PEOPLE} for t in PEOPLE}
                 perm = best_assignment(S); hit += sum(perm[t] == t for t in PEOPLE)
-            n = 3 * len(ds)
-            print(f"  {c:<5}PASS {vs['PASS']}/{n} REVIEW {vs['REVIEW']}/{n} FAIL {vs['FAIL']}/{n} | unchanged {un}/{n} | 엄격 배정 {hit}/{3 * len(okd)}" + (f" ({hit / (3 * len(okd)):.2f}, 글 {len(okd)}편)" if okd else " (모두 PASS인 글 없음)"))
+            n = len(PEOPLE) * len(ds)
+            print(f"  {c:<5}PASS {vs['PASS']}/{n} REVIEW {vs['REVIEW']}/{n} FAIL {vs['FAIL']}/{n} | unchanged {un}/{n} | 엄격 배정 {hit}/{len(PEOPLE) * len(okd)}" + (f" ({hit / (len(PEOPLE) * len(okd)):.2f}, 글 {len(okd)}편)" if okd else " (모두 PASS인 글 없음)"))
         for k, x in ver.items():
-            if x["verdict"] != "PASS": print(f"    {x['verdict']} {k[0]}→{SHORT[k[1]]} {k[2]}: {ko_verify.summarize(x)}"[:220])
+            if x["verdict"] != "PASS": print(f"    {x['verdict']} {k[0]}→{SHORT.get(k[1], k[1])} {k[2]}: {ko_verify.summarize(x)}"[:220])
         flagged = [(k, w) for k, (ok, w) in fmt.items() if not ok]
-        print(f"  형식 표시 {len(flagged)}/{len(keys)}건" + (": " + "; ".join(f"{k[0]}→{SHORT[k[1]]} {k[2]} {'/'.join(w)}" for k, w in flagged[:8]) + (" …" if len(flagged) > 8 else "") if flagged else ""))
+        print(f"  형식 표시 {len(flagged)}/{len(keys)}건" + (": " + "; ".join(f"{k[0]}→{SHORT.get(k[1], k[1])} {k[2]} {'/'.join(w)}" for k, w in flagged[:8]) + (" …" if len(flagged) > 8 else "") if flagged else ""))
     print("\n읽는 법: 우연 = 1/3. 배정 지표는 같은 글의 세 출력을 서로 다른 사람에게 배정하는 방식이라 분류기가 한 사람으로 쏠려도 영향을 덜 받음(D-072). "
           "출력을 본 뒤 고른 지표이므로 선택용에서는 가설, 확인용 측정 전에 주 지표로 고정하고 argmax 정답률·입력 판정(바닥)을 같이 보고. 글 하나가 3개 출력이라 서로 독립이 아님. "
           "형식 임계값은 초안. 강도를 올릴수록 뜻이 바뀔 위험이 있어 사람이 의미 유지를 확인해야 함. 분류기로 예시를 고르지 않음.")

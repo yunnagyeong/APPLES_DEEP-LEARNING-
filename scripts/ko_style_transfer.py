@@ -123,7 +123,7 @@ def neutralize(a):
 
 # ───────── 2) 변환 ─────────
 def heldout_docs(user):
-    info = json.loads((ROOT / "data/eval/split_info.json").read_text(encoding="utf-8"))
+    info = json.loads(__import__("src.config", fromlist=["x"]).SPLIT_INFO_PATH.read_text(encoding="utf-8"))
     return {u["user"]: set(u["heldout_docs"]) for u in info["users"]}.get(user, set())
 
 def gen(a):
@@ -192,7 +192,7 @@ def _rel(p):
     except ValueError: return p
 
 def load_train_docs():
-    info = json.loads((ROOT / "data/eval/split_info.json").read_text(encoding="utf-8"))
+    info = json.loads(__import__("src.config", fromlist=["x"]).SPLIT_INFO_PATH.read_text(encoding="utf-8"))
     return load_reference_docs({u["user"]: set(u["heldout_docs"]) for u in info["users"]})
 
 def _classify_block(clf, kc, neutrals, allg, fmt, ver, nids):

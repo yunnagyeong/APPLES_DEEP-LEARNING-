@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 OUT = ROOT / "data" / "ko_pairs"
 SEL, RAW = OUT / "selected.json", OUT / "raw.jsonl"
-PEOPLE = ["ganghee", "nakyung", "suyoung"]
+from src.ko_style import PEOPLE  # LINGUA_PEOPLE로 바꿀 수 있음
 PER_PERSON, MIN_C, MAX_C, SEED, HUMAN_SAMPLE = 15, 150, 450, "pairs", 4
 RATIO_LO, RATIO_HI = 0.8, 1.25
 MIN_CHANGE = 0.15  # 기능 형태소 변화율 하한(초안): 거의 복사한 짝은 변환 방식을 보여 주지 못함
@@ -53,7 +53,7 @@ def hapsyo_rate(text):
 
 
 def heldout():
-    info = json.loads((ROOT / "data/eval/split_info.json").read_text(encoding="utf-8"))
+    info = json.loads(__import__("src.config", fromlist=["x"]).SPLIT_INFO_PATH.read_text(encoding="utf-8"))
     return {u["user"]: set(u["heldout_docs"]) for u in info["users"]}
 
 

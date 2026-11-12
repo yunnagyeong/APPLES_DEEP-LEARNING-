@@ -28,6 +28,9 @@ FAILED_CASES_DIR = DATA_DIR / "failed_cases"
 # 문체 프로필·RAG 예시를 만듭니다. 평가 원문을 이미 본 상태로 번역하는 것을 막기 위함.
 # 비워두면(기본) 지금까지처럼 전체 코퍼스를 써서 데모·앱 동작은 바뀌지 않습니다.
 # scripts/run_abc.py가 자동으로 train으로 설정하므로 직접 켤 일은 거의 없습니다.
+# 평가 분할 정보 파일(기본 data/eval/split_info.json). 새 인물 코퍼스 실험은 LINGUA_SPLIT_INFO로 다른 파일을 가리킨다(D-097).
+_si = os.getenv("LINGUA_SPLIT_INFO", "").strip()
+SPLIT_INFO_PATH = (ROOT_DIR / _si if _si and not Path(_si).is_absolute() else Path(_si)) if _si else DATA_DIR / "eval" / "split_info.json"
 CORPUS_SPLIT = os.getenv("LINGUA_CORPUS_SPLIT", "").strip()
 _SPLIT_SUFFIX = f"_{CORPUS_SPLIT}" if CORPUS_SPLIT else ""
 

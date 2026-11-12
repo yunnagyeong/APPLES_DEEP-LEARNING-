@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 OUT = ROOT / "data" / "ko_docs"
-PEOPLE = ["ganghee", "nakyung", "suyoung"]
+from src.ko_style import PEOPLE  # LINGUA_PEOPLE로 바꿀 수 있음
 SKIP = {("ganghee", "doc_006"),   # 4주차 보강과제(주제 없음)
         ("nakyung", "doc_001"),   # 살아 있는 실존 인물(배우) 이름
         ("suyoung", "doc_008")}   # 살아 있는 실존 인물(정치인) 이름

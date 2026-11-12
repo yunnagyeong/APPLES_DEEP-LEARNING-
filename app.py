@@ -123,9 +123,11 @@ KO_MODES = {
     "P": "P · 문체 지시만",
     "R": "R · 본인 글 예시만",
 }
+KO_PERSONAS = {**PERSONAS, "스머프 할배 블로그": "blog"}  # 블로그 코퍼스는 한→한 데모의 문체 옵션으로만 둔다(평가·분류기 제외)
 DUMMY_KO_SOURCE = ("최근 AI가 쓴 글은 서로 비슷해지는 경향이 있습니다. 그러나 사람마다 글을 쓰는 방식은 다릅니다. "
                    "이 차이는 말투에 그대로 드러나므로 번역에서도 지켜져야 합니다. 따라서 개인의 문체를 반영하는 변환이 필요합니다.")
 DUMMY_KO_OUTPUTS = {  # 가짜 결과(화면 확인용): 실제 모델 출력이 아님
+    "blog": "요새 AI가 쓴 글은 다들 비슷비슷해지잖아. 그래도 사람마다 글 쓰는 건 다르지. 그 차이가 말투에 고스란히 나오니 번역에서도 지켜야 해. 그러니 내 문체를 살려 주는 변환이 필요하지.",
     "ganghee": "최근 AI가 쓴 글은 서로 비슷해지는 경향이 있다. 그러나 사람마다 글을 쓰는 방식은 다르며, "
                "이 차이는 말투에 그대로 드러나므로 번역에서도 지켜져야 한다. 그래서 개인의 문체를 반영하는 변환이 필요하다.",
     "nakyung": "최근 AI가 쓴 글은 서로 비슷해지는 경향이 있다. 그러나 사람마다 글을 쓰는 방식은 다르다. "
@@ -154,9 +156,41 @@ def run_ko_style(source, user, mode, use_dummy):
     return r
 
 
+def render_ko_metrics(r, user, persona):
+    """한→한 결과의 AI 획일화·스타일 지표 (src/ko_metrics, API 없음). 한→영 대시보드 지표의 한국어판(D-100)."""
+    from src import ko_metrics
+    st.markdown("**AI 획일화 및 스타일 지표**")
+    try:
+        rows = ko_metrics.table(r["source"], r["converted"], user, persona)
+    except BaseException as e:
+        st.warning(f"지표 계산 실패 ({type(e).__name__}: {e})")
+        return
+    a, b = rows[0], rows[1]
+    k1, k2, k3 = st.columns(3)
+    k1.metric("변환문 AI 표현 (100어절당)", f"{b['AI 표현 (100어절당)']:.1f}",
+              f"{b['AI 표현 (100어절당)'] - a['AI 표현 (100어절당)']:+.1f} vs 입력", delta_color="inverse")
+    k2.metric("변환문 어휘 다양도 (MTLD)", f"{b['어휘 다양도 (MTLD)']:.1f}",
+              f"{b['어휘 다양도 (MTLD)'] - a['어휘 다양도 (MTLD)']:+.1f} vs 입력")
+    if b["문장 길이 일치도"] is not None:
+        k3.metric(f"문장 길이 일치도 ({persona} 기준)", f"{b['문장 길이 일치도']:.2f}",
+                  f"{b['문장 길이 일치도'] - a['문장 길이 일치도']:+.2f} vs 입력")
+    st.dataframe(pd.DataFrame(rows).set_index("구분").round(3), width="stretch")
+    fmt = lambda c: ", ".join(f"{k}×{v}" for k, v in c.most_common()) or "없음"
+    st.caption(f"찾은 AI 표현 — 입력: {fmt(ko_metrics.find_markers(r['source']))} / 변환문: {fmt(ko_metrics.find_markers(r['converted']))}")
+    mk = ko_metrics.load_markers()
+    with st.expander("한국어 AI 표현 사전 (데이터에서 뽑은 후보)"):
+        if mk.get("missing"):
+            st.caption("data/ko_ai_markers.json이 없습니다. scripts/build_ko_ai_markers.py를 실행하세요.")
+        else:
+            st.caption(f"같은 내용의 AI 재작성 ↔ 사람 원문 {mk.get('n_pairs')}쌍에서 AI 쪽에 유독 많았던 표현"
+                       + ("(사람 검토 전 후보)" if not mk.get("reviewed") else ""))
+            st.markdown(", ".join(m["label"] for m in mk["markers"] if m["kind"] == "ai_marker"))
+            st.caption("'-습니다' 말투는 AI 표현과 따로 셉니다. 소표본에서 뽑은 목록이라 방향만 보세요.")
+
+
 def render_ko_style(persona, use_dummy, mode):
     from src import config, ko_style
-    user = PERSONAS[persona]
+    user = KO_PERSONAS[persona]
     st.caption("AI가 쓴 듯한 평범한 한국어를 선택한 사람의 문체로 다시 씁니다. 변환 뒤 규칙으로 뜻 유지를 점검하지만(AI 판단 아님), "
                "점검은 보조이니 변환문을 읽고 뜻이 같은지 직접 확인하세요.")
     if config.CORPUS_SPLIT and not use_dummy:
@@ -222,6 +256,14 @@ def render_ko_style(persona, use_dummy, mode):
                 st.markdown(f"**예시{i}** · {e.get('type') or ''} · 유사도 {e['score']:.2f}")
                 st.write(e["text"])
 
+    try:  # 지표 계산이 실패해도 아래 화면이 사라지지 않게
+        render_ko_metrics(r, user, persona)
+    except BaseException as e:
+        st.warning(f"AI 획일화·스타일 지표 표시 실패 ({type(e).__name__}: {e})")
+
+    if user in ko_style.DEMO_STYLES:  # 데모 문체는 세 사람 Delta 판정 대상이 아님
+        st.caption("이 문체는 데모용 옵션이라 세 사람 기준의 문체 판정은 표시하지 않습니다.")
+        return
     st.markdown("**문체 판정**")
     if len(r["source"].strip()) < ko_style.MIN_CHARS_FOR_STYLE_SCORE:
         st.caption(f"문체 판정 점수는 1,000자 이상일 때만 표시합니다 (현재 {len(r['source'].strip()):,}자).")
@@ -346,7 +388,7 @@ def main():
     with st.sidebar:
         st.header("설정")
         task = st.radio("작업", [TASK_EN, TASK_KO])
-        persona = st.radio("누구 말투로 번역할까요?" if task == TASK_EN else "누구 문체로 바꿀까요?", list(PERSONAS))
+        persona = st.radio("누구 말투로 번역할까요?" if task == TASK_EN else "누구 문체로 바꿀까요?", list(PERSONAS if task == TASK_EN else KO_PERSONAS))
         ko_mode = "R"  # 한→한은 본인 글 예시(RAG)만, 문체 지시 없음 (수영 결정 11/12, D-096)
         use_dummy = st.toggle("데모용 가짜 결과 (API 호출 안 함)", value=False,
                               help="API 키 없이 화면만 확인할 때")
