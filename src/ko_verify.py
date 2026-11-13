@@ -149,9 +149,10 @@ def _multiset_recall(a: list[str], b: list[str]) -> float:
 
 
 # ---------------------------------------------------------------- 개별 검사
-def _issue(kind: str, note: str, evidence: str = "") -> dict:
+def _issue(kind: str, note: str, evidence: str = "", where: str = "") -> dict:
+    """where: evidence가 어느 글의 문장·구절인지("source"=입력, "output"=변환문, ""=근거 문장 없음). 화면 강조용."""
     return {"type": kind, "severity": SEVERITY[kind], "label_ko": LABEL_KO[kind], "note": note,
-            "evidence": evidence[:200]}
+            "evidence": evidence[:200], "where": where if evidence else ""}
 
 
 def _numbers(text: str) -> tuple[Counter, Counter]:
@@ -325,12 +326,13 @@ def _sent_with(sents, sent_toks, pred) -> str:
 def check_polarity(a: dict, b: dict) -> list[dict]:
     """부정(서술어 단위)·추측(개수)·범위어(개수). 근거로 해당 표현이 든 문장을 붙인다."""
     issues = []
-    for (p, sent), where in [(x, "원문에서 부정→변환문에서 긍정") for x in _neg_flips(a, b)] + \
-                            [(x, "원문에서 긍정→변환문에서 부정") for x in _neg_flips(b, a)]:
-        issues.append(_issue("NEGATION_FLIP", f"'{p}': {where}", sent))
-    flips = [(x, "원문 추측→변환문 단정") for x in _hedge_flips(a, b)] + [(x, "원문 단정→변환문 추측") for x in _hedge_flips(b, a)]
-    for (p, sent), where in flips:
-        issues.append(_issue("MODALITY_SHIFT", f"'{p}': {where}", sent))
+    for (p, sent), what, side in [(x, "원문에서 부정→변환문에서 긍정", "source") for x in _neg_flips(a, b)] + \
+                                 [(x, "원문에서 긍정→변환문에서 부정", "output") for x in _neg_flips(b, a)]:
+        issues.append(_issue("NEGATION_FLIP", f"'{p}': {what}", sent, side))
+    flips = [(x, "원문 추측→변환문 단정", "source") for x in _hedge_flips(a, b)] + \
+            [(x, "원문 단정→변환문 추측", "output") for x in _hedge_flips(b, a)]
+    for (p, sent), what, side in flips:
+        issues.append(_issue("MODALITY_SHIFT", f"'{p}': {what}", sent, side))
     hs, ho = _hedge_count(a["toks"]), _hedge_count(b["toks"])
     if hs != ho and not flips:
         issues.append(_issue("MODALITY_MINOR", f"추측 표현(수 있다·것 같다·보인다 등) {hs}→{ho}개 (서술어 단위 변화는 없음)"))
@@ -351,6 +353,23 @@ def _eojeol_ngrams(text: str, n: int) -> set[tuple]:
     return {tuple(w[i:i + n]) for i in range(len(w) - n + 1)}
 
 
+def _copied_span(out_text: str, copied: set[tuple]) -> str:
+    """베낀 5어절 묶음들을 이어 변환문의 실제 구절(가장 긴 것)로 돌려준다. 재번역 지시·화면 강조에 그대로 쓰도록."""
+    raw = out_text.split()
+    norm = [re.sub(r"[^\w가-힣]", "", x) for x in raw]
+    hit = [False] * len(raw)
+    for i in range(len(raw) - COPY_NGRAM + 1):
+        if tuple(norm[i:i + COPY_NGRAM]) in copied:
+            for j in range(i, i + COPY_NGRAM):
+                hit[j] = True
+    best, cur = [], []
+    for w, h in zip(raw, hit):
+        cur = cur + [w] if h else []
+        if len(cur) > len(best):
+            best = cur
+    return " ".join(best)
+
+
 def check_content(a: dict, b: dict, example_text: str = "") -> tuple[list[dict], dict]:
     """문장 단위 누락·추가 + 글 전체 재현율 + 예시 베낌."""
     issues = []
@@ -365,15 +384,15 @@ def check_content(a: dict, b: dict, example_text: str = "") -> tuple[list[dict],
         if len(lem) >= SENT_MIN_LEMMAS and local(lem, b) < SENT_COVERAGE_MIN:
             miss = sorted(l for l in lem if not _present(l, pb))
             note = f"빠진 말: {', '.join(miss[:8])}" if miss else "낱말은 다른 곳에 흩어져 있으나 이 문장에 대응하는 곳이 없음"
-            issues.append(_issue("OMISSION", f"원문 문장에 대응하는 변환문 문장이 없음 ({note})", s))
+            issues.append(_issue("OMISSION", f"원문 문장에 대응하는 변환문 문장이 없음 ({note})", s, "source"))
     ex_pool = set(_lemmas(_analyze(example_text)["toks"])) if example_text else set()
     for s, lem in zip(b["sents"], b["sent_lem"]):
         if len(lem) >= SENT_MIN_LEMMAS and local(lem, a) < SENT_COVERAGE_MIN:
             new = sorted(l for l in lem if not _present(l, pa))
             if ex_pool and new and _coverage(new, ex_pool) >= EXAMPLE_CONTENT_MIN:
-                issues.append(_issue("EXAMPLE_COPY", f"원문에 없는 문장인데 내용어가 검색 예시에서 옴 ({', '.join(new[:8])})", s))
+                issues.append(_issue("EXAMPLE_COPY", f"원문에 없는 문장인데 내용어가 검색 예시에서 옴 ({', '.join(new[:8])})", s, "output"))
             else:
-                issues.append(_issue("ADDITION", f"원문에 대응하는 곳이 없는 문장 (새 말: {', '.join(new[:8]) or '없음'})", s))
+                issues.append(_issue("ADDITION", f"원문에 대응하는 곳이 없는 문장 (새 말: {', '.join(new[:8]) or '없음'})", s, "output"))
     recall, precision = _multiset_recall(la, lb), _multiset_recall(lb, la)
     if recall < RECALL_MIN:
         issues.append(_issue("LOW_RECALL", f"원문 내용어 중 {recall:.0%}만 남음 (하한 {RECALL_MIN:.0%})"))
@@ -381,8 +400,8 @@ def check_content(a: dict, b: dict, example_text: str = "") -> tuple[list[dict],
         copied = (_eojeol_ngrams(" ".join(b["sents"]), COPY_NGRAM) & _eojeol_ngrams(example_text, COPY_NGRAM)) \
             - _eojeol_ngrams(" ".join(a["sents"]), COPY_NGRAM)
         if copied and not any(i["type"] == "EXAMPLE_COPY" for i in issues):
-            span = " ".join(sorted(copied)[0])
-            issues.append(_issue("EXAMPLE_COPY", f"검색 예시와 {COPY_NGRAM}어절 이상 같은 구절 {len(copied)}곳 (원문에는 없음)", span))
+            span = _copied_span(" ".join(b["sents"]), copied)
+            issues.append(_issue("EXAMPLE_COPY", f"검색 예시와 {COPY_NGRAM}어절 이상 같은 구절 {len(copied)}곳 (원문에는 없음)", span, "output"))
     return issues, {"content_recall": round(recall, 3), "content_precision": round(precision, 3)}
 
 
@@ -391,7 +410,7 @@ def check_meta(out: str, src: str = "") -> list[dict]:
         return [_issue("EMPTY_OUTPUT", "변환문이 비어 있음")]
     m = META_RX.search(out)
     if m and m.group(0).strip() not in src:  # 입력에도 있던 표현('결과:' 등)은 머리말이 아님
-        return [_issue("META_TEXT", "변환문에 설명·머리말·원문 표시가 섞임", m.group(0).strip())]
+        return [_issue("META_TEXT", "변환문에 설명·머리말·원문 표시가 섞임", m.group(0).strip(), "output")]
     return []
 
 
@@ -452,3 +471,92 @@ def summarize(result: dict) -> str:
     c = Counter((i["severity"], i["label_ko"]) for i in result["issues"])
     order = sorted(c, key=lambda k: -RANK[k[0]])
     return f"{result['verdict']} | " + " / ".join(f"[{s}] {l}" + (f" ×{c[(s, l)]}" if c[(s, l)] > 1 else "") for s, l in order)
+
+
+# ---------------------------------------------------------------- 재번역·사람 확인용 (src/ko_pipeline.py가 씀)
+# 정책: FAIL(critical)만 기계가 고친다. REVIEW(major)는 오탐이 섞여 있어 자동으로 고치면 멀쩡한 문체를 망칠 수
+# 있으므로 고치지 않고, 문제 문장을 표시해 사람에게 넘긴다.
+FIX_HINTS = {
+    "NUMBER_MISMATCH": "숫자는 원문과 똑같이 쓰세요. 빠진 숫자는 되살리고, 원문에 없는 숫자는 지우세요.",
+    "EXAMPLE_COPY": "이 부분은 원문에 없는 내용입니다(참고 예시에서 온 것). 지우거나 원문의 해당 내용으로 바꾸세요.",
+    "META_TEXT": "설명·머리말·원문 표시는 지우고 다시 쓴 글만 남기세요.",
+    "EMPTY_OUTPUT": "다시 쓴 글 전체를 출력하세요.",
+}
+
+_PREAMBLE_LINE = re.compile(
+    r"^\s*((네|물론|알겠습니다|좋습니다)[,.!]?\s*)?(다음은|아래는|요청하신)[^\n]{0,60}(다시 쓴|변환한|바꾼|재작성한|옮긴)[^\n]{0,30}$"
+    r"|^\s*[^\n]{0,40}(다시 쓴|변환(된|한)?|바꾼)[^\n]{0,20}[:：]\s*$"
+    r"|^\s*#{1,6}\s[^\n]*$")
+_CLOSING_LINE = re.compile(r"^\s*[^\n]{0,40}(다시 썼|변환했|바꿨|재작성했)습니다[.!]?\s*$")
+_LABEL_PREFIX = re.compile(r"^\s*(\*\*)?(다시 쓴 글|변환(된|한)? ?글|결과|출력)(\*\*)?\s*[:：]\s*")
+
+
+def retry_issues(result: dict) -> list[dict]:
+    """재번역으로 고칠 문제 = critical만."""
+    return [i for i in result.get("issues", []) if i["severity"] == "critical"]
+
+
+def strip_meta(source: str, output: str) -> str:
+    """머리말·제목·끝맺음 인사·'다시 쓴 글:' 꼬리표를 규칙으로 지운다(API 호출 없음).
+    입력 글에도 있는 줄은 머리말이 아니므로 남긴다. 지운 뒤에도 META_TEXT가 남으면 재번역으로 넘긴다."""
+    lines = output.strip().split("\n")
+    src = source.strip()
+    while lines and (not lines[0].strip() or _PREAMBLE_LINE.match(lines[0])) and (not lines[0].strip() or lines[0].strip() not in src):
+        lines.pop(0)
+    if lines and not _LABEL_PREFIX.match(src):
+        lines[0] = _LABEL_PREFIX.sub("", lines[0])
+    while lines and (not lines[-1].strip() or _CLOSING_LINE.match(lines[-1])) and (not lines[-1].strip() or lines[-1].strip() not in src):
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def fix_instructions(result: dict) -> str:
+    """critical 문제를 재번역 모델에 줄 한국어 지시로. 근거 구절이 있으면 그대로 인용한다."""
+    out = []
+    for i in retry_issues(result):
+        line = f"- [{i['label_ko']}] {i['note']}"
+        if i.get("evidence"):
+            line += f' / 해당 부분: "{i["evidence"]}"'
+        out.append(line + f" → {FIX_HINTS.get(i['type'], '원문과 뜻이 같게 고치세요.')}")
+    return "\n".join(out)
+
+
+def review_points(result: dict) -> list[dict]:
+    """사람이 특히 확인할 곳(major 문제). 같은 문장은 하나로 묶는다.
+    반환: [{"sentence", "where"("source"|"output"|""), "labels"[...], "notes"[...]}] — 근거 문장이 있는 것부터."""
+    pts: dict[tuple, dict] = {}
+    for i in result.get("issues", []):
+        if i["severity"] != "major":
+            continue
+        key = (i.get("where", ""), i.get("evidence", "")) if i.get("evidence") else ("", i["type"])
+        p = pts.setdefault(key, {"sentence": i.get("evidence", ""), "where": i.get("where", ""), "labels": [], "notes": []})
+        if i["label_ko"] not in p["labels"]:
+            p["labels"].append(i["label_ko"])
+        p["notes"].append(i["note"])
+    return sorted(pts.values(), key=lambda p: (not p["sentence"], p["where"] != "output"))
+
+
+def mark_segments(text: str, sentences: list[str]) -> list[tuple[str, bool]]:
+    """text를 [(조각, 표시 여부)]로 나눈다. sentences에 든 문장(그대로 나오는 것)만 표시. 화면 강조용."""
+    spans = []
+    for s in {s for s in sentences if s and s in text}:
+        start = text.find(s)
+        while start != -1:
+            spans.append((start, start + len(s)))
+            start = text.find(s, start + len(s))
+    spans.sort()
+    merged = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(b, merged[-1][1]))
+        else:
+            merged.append((a, b))
+    segs, pos = [], 0
+    for a, b in merged:
+        if pos < a:
+            segs.append((text[pos:a], False))
+        segs.append((text[a:b], True))
+        pos = b
+    if pos < len(text):
+        segs.append((text[pos:], False))
+    return segs

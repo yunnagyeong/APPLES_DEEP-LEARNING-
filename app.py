@@ -146,12 +146,13 @@ def warm_up_ko():
 
 
 def run_ko_style(source, user, mode, use_dummy):
-    from src import ko_style
+    from src import ko_pipeline
     start = time.time()
     dummy = None
     if use_dummy:
         dummy = DUMMY_KO_OUTPUTS[user] if source.strip() == DUMMY_KO_SOURCE else "[가짜 결과] " + source
-    r = ko_style.convert_style(source, user, mode, dummy_output=dummy, verify=True)
+    # 변환 → 규칙 검증 → FAIL이면 자동 재번역(최대 1회), REVIEW는 표시만 (src/ko_pipeline.py, 강희)
+    r = ko_pipeline.convert_checked(source, user, mode, dummy_output=dummy)
     r["seconds"] = time.time() - start
     return r
 
@@ -186,6 +187,38 @@ def render_ko_metrics(r, user, persona):
                        + ("(사람 검토 전 후보)" if not mk.get("reviewed") else ""))
             st.markdown(", ".join(m["label"] for m in mk["markers"] if m["kind"] == "ai_marker"))
             st.caption("'-습니다' 말투는 AI 표현과 따로 셉니다. 소표본에서 뽑은 목록이라 방향만 보세요.")
+
+
+def render_ko_check(r):
+    """의미 점검 결과: PASS 그대로 / FAIL이었으면 자동 재번역 이력 / REVIEW면 사람이 볼 문장을 강조 (src/ko_pipeline.py)."""
+    import html
+    from src import ko_pipeline, ko_verify
+    v, chk = r["verify"], r.get("check") or {}
+    status = chk.get("status", v["verdict"])
+    icon = {"PASS": "✅", "REVIEW": "⚠️", "FAIL": "❌"}.get(status, "")
+    (st.success if status == "PASS" else st.error if status == "FAIL" else st.warning)(
+        f"{icon} 의미 점검 {status}: {chk.get('message') or ko_verify.summarize(v)}")
+    if len(chk.get("attempts", [])) > 1:
+        st.caption("자동 재번역: " + ko_pipeline.history_line(chk))
+        with st.expander("재번역 전 첫 변환문 보기"):
+            st.caption(chk["attempts"][0]["summary"])
+            st.text_area("첫 변환문", chk["first_output"], height=160, disabled=True, label_visibility="collapsed")
+    if chk.get("note"):
+        st.caption(chk["note"])
+    if status != "REVIEW" or not chk.get("review"):
+        return
+    st.markdown("**사람이 확인할 곳** (뜻이 바뀌었을 수 있는 문장, 자동으로 고치지 않았습니다)")
+    marks = [p["sentence"] for p in chk["review"] if p["where"] == "output"]
+    if marks:
+        body = "".join(f"<mark>{html.escape(t)}</mark>" if m else html.escape(t)
+                       for t, m in ko_verify.mark_segments(r["converted"], marks))
+        st.markdown(f"<div style='white-space:pre-wrap;line-height:1.7'>{body}</div>", unsafe_allow_html=True)
+    for p in chk["review"]:
+        where = {"output": "변환문", "source": "입력"}.get(p["where"], "")
+        line = f"- ⚠️ **{', '.join(p['labels'])}**"
+        if p["sentence"]:
+            line += f" · {where}: “{p['sentence']}”"
+        st.markdown(line + f"  \n  {' / '.join(dict.fromkeys(p['notes']))}")
 
 
 def render_ko_style(persona, use_dummy, mode):
@@ -232,15 +265,13 @@ def render_ko_style(persona, use_dummy, mode):
 
     v = r.get("verify")
     if v:
-        from src import ko_verify
-        icon = {"PASS": "✅", "REVIEW": "⚠️", "FAIL": "❌"}.get(v["verdict"], "")
-        msg = f"{icon} 의미 점검: {ko_verify.summarize(v)}"
-        (st.success if v["verdict"] == "PASS" else st.error if v["verdict"] == "FAIL" else st.warning)(msg)
+        render_ko_check(r)
         if v["issues"]:
             with st.expander(f"점검 항목 {len(v['issues'])}개"):
                 for i in v["issues"]:
                     st.markdown(f"- [{i['severity']}] **{i['label_ko']}** · {i['note']}" + (f" — `{i['evidence']}`" if i.get("evidence") else ""))
-            st.caption("REVIEW는 뜻이 바뀌었을 수 있다는 표시이지 오류 확정이 아닙니다. 사람이 확인하세요.")
+            if v["verdict"] == "REVIEW":
+                st.caption("REVIEW는 뜻이 바뀌었을 수 있다는 표시이지 오류 확정이 아닙니다. 사람이 확인하세요.")
 
     if "P" in r["mode"]:  # 지금 데모는 R만 쓰므로 표시되지 않음(이전 방식 호환용)
         st.markdown("**적용된 문체 지시**")

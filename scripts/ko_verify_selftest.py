@@ -33,13 +33,19 @@ def legit_pairs():
             pairs.append({"id": f"{r['nid']}|AI→사람", "set": "중립문↔원문", "src": r["neutral"], "out": r["source"], "person": r["person"]})
             pairs.append({"id": f"{r['nid']}|사람→AI", "set": "중립문↔원문", "src": r["source"], "out": r["neutral"], "person": r["person"]})
     gen = ROOT / "results/ko_doc/base/gen.jsonl"
+    missing = set()
     if gen.exists():
         for l in gen.open(encoding="utf-8"):
             r = json.loads(l)
             if r.get("output") and not r.get("error"):
-                src = (ROOT / "data/ko_docs" / r["set"] / f"{r['doc']}.txt").read_text(encoding="utf-8").strip()
-                pairs.append({"id": f"{r['doc']}|{r['target']}|{r['cond']}", "set": "기존 변환 결과", "src": src,
-                              "out": r["output"], "person": r["target"]})
+                f = ROOT / "data/ko_docs" / r["set"] / f"{r['doc']}.txt"
+                if not f.exists():  # 입력 글이 지워졌거나 새로 만드는 중이면 이 묶음은 건너뜀
+                    missing.add(str(f.relative_to(ROOT)))
+                    continue
+                pairs.append({"id": f"{r['doc']}|{r['target']}|{r['cond']}", "set": "기존 변환 결과",
+                              "src": f.read_text(encoding="utf-8").strip(), "out": r["output"], "person": r["target"]})
+    if missing:
+        print(f"[알림] 입력 글 {len(missing)}개가 없어 '기존 변환 결과' 묶음을 건너뜁니다: {', '.join(sorted(missing))}")
     return pairs
 
 

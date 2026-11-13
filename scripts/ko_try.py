@@ -7,7 +7,7 @@ import argparse, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from collections import Counter
-from src import ko_style, ko_classify as kc
+from src import ko_style, ko_classify as kc, ko_pipeline
 
 ap = argparse.ArgumentParser()
 g = ap.add_mutually_exclusive_group(required=True)
@@ -16,6 +16,8 @@ ap.add_argument("--target", required=True, choices=list(ko_style.PEOPLE))
 ap.add_argument("--mode", default="R", choices=["N", "P", "R", "P+R"])
 ap.add_argument("--version", default="new", choices=list(ko_style.PROMPT_VERSIONS))
 ap.add_argument("--split", action="store_true", help="빈 줄 단위 문단으로 나눠 각각 변환·판정")
+ap.add_argument("--retries", type=int, default=ko_pipeline.DEFAULT_MAX_RETRIES,
+                help="의미 점검 FAIL일 때 자동 재번역 최대 횟수(기본 1, 0이면 재번역 안 함)")
 a = ap.parse_args()
 text = a.text if a.text else Path(a.file).read_text(encoding="utf-8")
 paras = [p.strip() for p in text.split("\n\n") if p.strip()] if a.split else [text.strip()]
@@ -24,12 +26,16 @@ clf = kc.Classifiers()
 outs = []
 for p in paras:
     if a.mode == "N": outs.append(p); continue
-    r = ko_style.convert_style(p, a.target, a.mode, version=a.version, verify=True)
+    r = ko_pipeline.convert_checked(p, a.target, a.mode, version=a.version, max_retries=a.retries)
     outs.append(r["converted"])
     print(f"[변환 {a.mode}·{a.version}→{a.target}] 지시 {len(r['lines'])}줄\n{r['converted']}\n")
-    from src import ko_verify
-    print("의미 점검(규칙, 보조):", ko_verify.summarize(r["verify"]))
+    c = r["check"]
+    print(f"의미 점검(규칙, 보조): {c['status']} — {c['message']}")
+    if len(c["attempts"]) > 1: print("  자동 재번역:", ko_pipeline.history_line(c))
+    if c["note"]: print("  " + c["note"])
     for i in r["verify"]["issues"]: print(f"  - [{i['severity']}] {i['label_ko']}: {i['note']}")
+    for q in c["review"]:
+        print(f"  ⚠ 사람이 확인: {', '.join(q['labels'])}" + (f" — {q['sentence']}" if q["sentence"] else ""))
     print()
 try:
     from src import ko_format

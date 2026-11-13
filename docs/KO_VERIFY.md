@@ -1,17 +1,49 @@
 # 한→한 문체 변환 의미 검증 (강희 담당)
 
-이 작업은 **새 파일 4개만 추가**했다. 기존 파일은 하나도 고치지 않았다.
-
 | 파일 | 역할 |
 |---|---|
-| `src/ko_verify.py` | 검증기 본체. 입력 글과 변환 결과를 비교해 PASS / REVIEW / FAIL |
-| `scripts/ko_verify_run.py` | 검증 파이프라인. 팀원 결과 파일을 받아 유출 검사 + 검증 → 판정 파일 |
+| `src/ko_verify.py` | 검증기 본체. 입력 글과 변환 결과를 비교해 PASS / REVIEW / FAIL. 재번역 지시·머리말 삭제·REVIEW 표시 함수 포함 |
+| `src/ko_pipeline.py` | **변환 → 검증 → FAIL이면 자동 재번역** (`convert_checked`). 데모 앱과 `ko_try.py`가 씀 |
+| `scripts/ko_verify_run.py` | 결과 파일 검증. 팀원 결과 파일을 받아 유출 검사 + 검증 → 판정 파일 |
 | `scripts/ko_verify_selftest.py` | 검증기 자체 시험(오탐률, 오류 주입 탐지율) |
+| `test_ko_pipeline.py` | 재번역 루프 테스트 14개(API 없음, 가짜 생성 모델) |
 | `docs/KO_VERIFY.md` | 이 문서 |
 
-- **API·LLM·torch 없음.** Kiwi(이미 쓰는 형태소 분석기)와 규칙만. 한 건 0.1초 안팎. 같은 입력이면 항상 같은 결과.
-- 변환은 1회, 검증도 1회. 다시 생성하는 루프 없음.
+- **검증은 API·LLM·torch 없음.** Kiwi(이미 쓰는 형태소 분석기)와 규칙만. 한 건 0.1초 안팎. 같은 입력이면 항상 같은 결과.
 - 영어 쪽 `src/verify.py`(Gemini 판정)와는 별개이고 그대로 둔다.
+
+## 변환 → 검증 → 결과별 처리 (`src/ko_pipeline.py`)
+
+```
+변환(팀원 convert_style, Gemini 1회) → 규칙 검증
+   ├ PASS   → 그대로 둔다
+   ├ REVIEW → 고치지 않는다. 문제 문장을 표시해 사람이 그 부분을 주의해서 보게 한다
+   └ FAIL   → 기계가 다시 쓴다 → 다시 검증 → 가장 좋은 시도를 돌려준다
+               ① 머리말·제목·끝맺음 인사 섞임: 규칙으로 지움 (API 0회, 재번역 횟수에 안 셈)
+               ② 빈 출력: 같은 프롬프트로 다시 생성
+               ③ 숫자 불일치·예시 베낌 등: "지적된 부분만 고치라"는 최소 수정 프롬프트로 다시 생성
+                  (이 프롬프트엔 검색 예시를 넣지 않음 → 예시를 또 베끼지 않음. 문체는 이전 변환문을 그대로 두게 해서 지킴)
+               재번역은 최대 1회(max_retries로 바꿈). 고치는 대상은 critical만, major는 사람 몫
+```
+
+- **왜 REVIEW는 자동으로 안 고치나:** REVIEW에는 바꿔 말하기를 잘못 잡은 오탐이 섞여 있다(자체 시험 기준 많이 바꾼 글에서 절반). 자동으로 고치면 멀쩡한 문체를 망칠 수 있어, 근거 문장을 강조해 사람이 그 부분만 보게 한다.
+- **가장 좋은 시도 반환:** PASS > REVIEW > FAIL, 같으면 앞 시도(원래 문체에 가까움). 재번역이 오히려 나빠져도 첫 결과를 잃지 않는다. 영어 `src/pipeline.py`와 같은 원칙.
+- **비용:** PASS·REVIEW는 변환 1회 그대로. FAIL만 생성 호출이 최대 1회 늘어난다. 검증은 0원.
+- **평가:** 평가 실험(`scripts/ko_doc_transfer.py`)은 지금처럼 첫 시도로 잰다. 재번역 결과를 평가에 쓸 때는 `first_verdict`(첫 시도)와 최종 판정을 따로 적는다.
+
+```python
+from src.ko_pipeline import convert_checked, history_line
+r = convert_checked(text, "ganghee")            # convert_style과 같은 인자 + max_retries(기본 1)
+r["converted"], r["verify"]                      # 최종(가장 좋은 시도) 변환문과 검증 결과
+c = r["check"]
+c["status"], c["message"]                        # PASS | REVIEW | FAIL, 화면용 한 줄
+c["first_verdict"], c["first_output"]            # 재번역 전 첫 결과
+history_line(c)                                  # "FAIL → 지적 부분만 고쳐 다시 생성 → PASS (최종: 2번째 시도)"
+c["review"]                                      # REVIEW일 때 사람이 볼 곳 [{sentence, where(source|output), labels, notes}]
+```
+
+데모(`app.py` 한→한 탭): 판정 배너 + (재번역했으면) 이력과 첫 변환문 + (REVIEW면) 변환문에서 해당 문장을 형광펜으로 강조하고 목록으로 보여 준다.
+`ko_try.py`: `--retries 0`이면 예전처럼 재번역 없이 판정만.
 
 ## 역할 나눔
 
@@ -50,15 +82,18 @@
 
 ### 짝 예시 DB
 
+팀원 `scripts/ko_pairs.py`가 만드는 `data/ko_pairs/pairs_<사람>.jsonl`을 그대로 넣으면 된다.
+
 ```json
-{"id": "doc_007_08", "styled": "<사람이 쓴 문단>", "ai": "<그 문단을 AI 말투로 바꾼 글>"}
+{"pair_id": "ganghee_doc_007_p03", "doc": "doc_007", "original": "<사람이 쓴 문단>", "ai": "<그 문단을 AI 말투로 바꾼 글>"}
 ```
+(`{"id", "styled", "ai"}` 형식도 받는다. 예시 id는 `doc_007_08`, `ganghee_doc_007_p03` 모두 문서 `doc_007`로 읽는다.)
 
 ## 실행
 
 ```bash
 # ① 짝 DB 검사 → results/ko_verify/pairs_<user>.csv
-python scripts/ko_verify_run.py pairs --pairs <짝.jsonl> --user ganghee
+python scripts/ko_verify_run.py pairs --pairs data/ko_pairs/pairs_ganghee.jsonl --user ganghee
 
 # ② 변환 결과 검증 → results/ko_verify/<tag>/verify.jsonl, verify.csv, summary.md
 python scripts/ko_verify_run.py gen --gen <변환결과.jsonl> --tag pairs_v1
@@ -67,8 +102,9 @@ python scripts/ko_verify_run.py gen --gen <변환결과.jsonl> --tag pairs_v1
 python scripts/ko_verify_run.py gen --gen <변환결과.jsonl> --tag pairs_v1 --override <확인한.csv>
 
 # 동작 확인(기존 results/ko_doc/base 결과로) / 검증기 자체 시험
-python scripts/ko_verify_run.py demo
+python scripts/ko_verify_run.py demo          # data/ko_docs/select 입력 글이 있을 때만
 python scripts/ko_verify_selftest.py --show
+python test_ko_pipeline.py                     # 재번역 루프 테스트 (API 없음)
 ```
 
 ## 팀원에게 넘기는 것: `verify.jsonl`

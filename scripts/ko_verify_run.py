@@ -6,7 +6,8 @@
   gen   : 변환 결과 검증 → results/ko_verify/<tag>/verify.jsonl, verify.csv, summary.md
           python scripts/ko_verify_run.py gen --gen <변환결과.jsonl> [--tag 이름] [--override 확인.csv]
   pairs : 짝 예시 DB 검증(AI 글이 사람 글 뜻을 바꿨나, 평가 문서가 섞였나) → results/ko_verify/pairs_<user>.csv
-          python scripts/ko_verify_run.py pairs --pairs <짝.jsonl> --user ganghee
+          python scripts/ko_verify_run.py pairs --pairs data/ko_pairs/pairs_ganghee.jsonl --user ganghee
+          (팀원 ko_pairs.py 형식 {pair_id, doc, original, ai}와 {id, styled, ai} 모두 받음)
   demo  : 기존 결과(results/ko_doc/base)를 gen 형식으로 바꿔 한 번 돌려 본다.
 
 팀원에게 넘기는 것: verify.jsonl 한 줄 = {"id", "verdict", "use", "leak", "issues", "stats"}
@@ -39,8 +40,9 @@ def heldout_docs() -> dict[str, set[str]]:
 
 
 def doc_of(example_id: str) -> str:
-    """'doc_007_08' → 'doc_007' (청크 번호 떼기). 이미 문서 id면 그대로."""
-    return example_id.rsplit("_", 1)[0] if re.fullmatch(r".+_\d+_\d+", example_id or "") else example_id
+    """예시·짝 id에서 문서 id만. 'doc_007_08'(검색 청크) → 'doc_007', 'ganghee_doc_007_p03'(짝, ko_pairs.py) → 'doc_007'."""
+    m = re.search(r"doc_\d+", example_id or "")
+    return m.group(0) if m else (example_id or "")
 
 
 def _grams(t: str, n: int = 5) -> set[str]:
@@ -159,13 +161,16 @@ def cmd_pairs(a):
     out = OUT / f"pairs_{a.user}.csv"
     vc, rows = Counter(), []
     for p in pairs:
-        if not p.get("ai") or not p.get("styled"):
-            sys.exit(f"[중단] 짝에 ai·styled가 모두 있어야 합니다: {p.get('id')}")
-        v = kv.verify(p["styled"], p["ai"])  # 사람 글(원본) → AI 글(바꾼 것)
-        is_held = doc_of(str(p.get("id", ""))) in held
+        # 두 형식 모두 받음: {id, styled, ai} 또는 팀원 scripts/ko_pairs.py의 {pair_id, doc, original, ai}
+        pid = p.get("id") or p.get("pair_id") or ""
+        human = p.get("styled") or p.get("original")
+        if not p.get("ai") or not human:
+            sys.exit(f"[중단] 짝에 ai와 사람 글(styled 또는 original)이 모두 있어야 합니다: {pid}")
+        v = kv.verify(human, p["ai"])  # 사람 글(원본) → AI 글(바꾼 것)
+        is_held = (p.get("doc") or doc_of(str(pid))) in held
         verdict = "FAIL" if is_held else v["verdict"]
         vc[verdict] += 1
-        rows.append([p.get("id", ""), verdict, "평가 문서" if is_held else "", short_issues(v), p["styled"], p["ai"]])
+        rows.append([pid, verdict, "평가 문서" if is_held else "", short_issues(v), human, p["ai"]])
     with out.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         w.writerow(["id", "판정", "유출", "문제", "사람 글", "AI 글"])
@@ -183,9 +188,13 @@ def cmd_demo(a):
             continue
         key = next((k for k in ret if k.startswith(f"{r['set']}|{r['doc']}|{r['target']}|")), None)
         exs = [{"id": e["id"], "styled": e["text"]} for e in ret.get(key, [])] if "R" in r["cond"] else []
+        f = ROOT / "data/ko_docs" / r["set"] / f"{r['doc']}.txt"
+        if not f.exists():
+            continue
         recs.append({"id": f"{r['doc']}|{r['target']}|{r['cond']}", "cond": r["cond"], "target": r["target"],
-                     "input": (ROOT / "data/ko_docs" / r["set"] / f"{r['doc']}.txt").read_text(encoding="utf-8").strip(),
-                     "output": r["output"], "examples": exs})
+                     "input": f.read_text(encoding="utf-8").strip(), "output": r["output"], "examples": exs})
+    if not recs:
+        sys.exit("[중단] demo용 입력 글(data/ko_docs/select/*.txt)이 없습니다. 실제 결과는 gen --gen <파일>로 검증하세요.")
     print(f"기존 결과 {len(recs)}건을 gen 형식으로 바꿔 검증합니다(짝 예시 아님, 동작 확인용).\n")
     run_gen(recs, OUT / "demo_ko_doc_base", {})
 
@@ -198,7 +207,7 @@ if __name__ == "__main__":
     p.add_argument("--tag", default=None, help="결과 폴더 이름(results/ko_verify/<tag>), 기본은 파일 이름")
     p.add_argument("--override", default=None, help="사람 확인 CSV(id, 사람판정=PASS|FAIL)")
     p = sp.add_parser("pairs")
-    p.add_argument("--pairs", required=True, help="짝 예시 JSONL: {id, ai, styled}")
+    p.add_argument("--pairs", required=True, help="짝 예시 JSONL: {pair_id, doc, original, ai} 또는 {id, styled, ai}")
     p.add_argument("--user", required=True, choices=PEOPLE)
     sp.add_parser("demo")
     a = ap.parse_args()
