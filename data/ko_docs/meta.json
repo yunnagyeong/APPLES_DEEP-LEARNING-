@@ -1,0 +1,182 @@
+{
+ "leeyuksa_n18_doc_002": {
+  "person": "leeyuksa_n18",
+  "doc": "doc_002",
+  "type": "essay",
+  "title": "계절의 오행",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2928
+ },
+ "leeyuksa_n18_doc_017": {
+  "person": "leeyuksa_n18",
+  "doc": "doc_017",
+  "type": "essay",
+  "title": "영화에 대한 문화적 촉망",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2461
+ },
+ "leegwangsu_n18_doc_008": {
+  "person": "leegwangsu_n18",
+  "doc": "doc_008",
+  "type": "essay",
+  "title": "상해 이일 저일",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2572
+ },
+ "leesang_n18_doc_003": {
+  "person": "leesang_n18",
+  "doc": "doc_003",
+  "type": "essay",
+  "title": "문학을 버리고 문화를 상상할 수 없다",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2484
+ },
+ "leegwangsu_n18_doc_007": {
+  "person": "leegwangsu_n18",
+  "doc": "doc_007",
+  "type": "essay",
+  "title": "병창어",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2308
+ },
+ "leesang_n18_doc_010": {
+  "person": "leesang_n18",
+  "doc": "doc_010",
+  "type": "essay",
+  "title": "병상 이후",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2522
+ },
+ "leeyuksa_n18_doc_006": {
+  "person": "leeyuksa_n18",
+  "doc": "doc_006",
+  "type": "essay",
+  "title": "문외한의 수첩",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2359
+ },
+ "leesang_n18_doc_015": {
+  "person": "leesang_n18",
+  "doc": "doc_015",
+  "type": "essay",
+  "title": "황의 기",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 3065
+ },
+ "leegwangsu_n18_doc_003": {
+  "person": "leegwangsu_n18",
+  "doc": "doc_003",
+  "type": "essay",
+  "title": "어린 영혼",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2569
+ },
+ "leeyuksa_n18_doc_015": {
+  "person": "leeyuksa_n18",
+  "doc": "doc_015",
+  "type": "essay",
+  "title": "노신 추도문",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2577
+ },
+ "leeyuksa_n18_doc_003": {
+  "person": "leeyuksa_n18",
+  "doc": "doc_003",
+  "type": "essay",
+  "title": "계절의 표정",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 3237
+ },
+ "leesang_n18_doc_016": {
+  "person": "leesang_n18",
+  "doc": "doc_016",
+  "type": "essay",
+  "title": "공포의 성채",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2444
+ },
+ "leeyuksa_n18_doc_012": {
+  "person": "leeyuksa_n18",
+  "doc": "doc_012",
+  "type": "essay",
+  "title": "질투의 반군성",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2917
+ },
+ "leeyuksa_n18_doc_011": {
+  "person": "leeyuksa_n18",
+  "doc": "doc_011",
+  "type": "essay",
+  "title": "전조기",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2875
+ },
+ "leegwangsu_n18_doc_020": {
+  "person": "leegwangsu_n18",
+  "doc": "doc_020",
+  "type": "essay",
+  "title": "서울 열흘",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2689
+ },
+ "leesang_n18_doc_005": {
+  "person": "leesang_n18",
+  "doc": "doc_005",
+  "type": "essay",
+  "title": "행복",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2650
+ },
+ "leesang_n18_doc_008": {
+  "person": "leesang_n18",
+  "doc": "doc_008",
+  "type": "essay",
+  "title": "슬픈 이야기",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2457
+ },
+ "leesang_n18_doc_013": {
+  "person": "leesang_n18",
+  "doc": "doc_013",
+  "type": "essay",
+  "title": "애야",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2666
+ },
+ "leeyuksa_n18_doc_009": {
+  "person": "leeyuksa_n18",
+  "doc": "doc_009",
+  "type": "essay",
+  "title": "연인기",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2198
+ },
+ "leegwangsu_n18_doc_002": {
+  "person": "leegwangsu_n18",
+  "doc": "doc_002",
+  "type": "essay",
+  "title": "사랑",
+  "set": "select",
+  "model": "gemini-3.6-flash",
+  "chars": 2799
+ }
+}
