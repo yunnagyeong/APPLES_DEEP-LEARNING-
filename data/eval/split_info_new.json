@@ -33,6 +33,39 @@
         "doc_017": "동생 옥희 보아라",
         "doc_018": "김기림에게 6"
       }
+    },
+    {
+      "user": "leegwangsu_n18h",
+      "total_docs": 18,
+      "train_docs": 15,
+      "train_chunks": 359,
+      "heldout_docs": {
+        "doc_003": "어린 영혼",
+        "doc_016": "여름의 유모어",
+        "doc_020": "서울 열흘"
+      }
+    },
+    {
+      "user": "leesang_n18h",
+      "total_docs": 18,
+      "train_docs": 15,
+      "train_chunks": 233,
+      "heldout_docs": {
+        "doc_011": "동경",
+        "doc_017": "동생 옥희 보아라",
+        "doc_018": "김기림에게 6"
+      }
+    },
+    {
+      "user": "leeyuksa_n18h",
+      "total_docs": 18,
+      "train_docs": 15,
+      "train_chunks": 174,
+      "heldout_docs": {
+        "doc_001": "고란",
+        "doc_009": "연인기",
+        "doc_013": "횡액"
+      }
     }
   ]
 }
