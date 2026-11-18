@@ -8,6 +8,38 @@ st.set_page_config(
     layout="wide",
 )
 
+
+# 글씨 크기·진하기 (부스 화면에서 잘 보이게)
+STYLE = """
+<style>
+html, body, [data-testid="stAppViewContainer"] { font-size: 17px; }
+[data-testid="stMainBlockContainer"] { max-width: 100%; padding-left: 3rem; padding-right: 3rem; }
+h1 { font-size: 3.2rem !important; }
+h3 { font-size: 1.8rem !important; color: #111 !important; }
+[data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li { font-size: 1.2rem; color: #111; line-height: 1.7; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { font-size: 1.15rem !important; color: #333 !important; opacity: 1 !important; }
+textarea { font-size: 1.35rem !important; line-height: 1.8 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; }
+[data-testid="stWidgetLabel"] p { font-size: 1.3rem !important; font-weight: 700; color: #111; }
+[data-testid="stSidebar"] { width: 320px !important; min-width: 320px !important; }
+[data-testid="stSidebarUserContent"] { padding-top: 0 !important; }
+[data-testid="stSidebarHeader"] { height: 2.2rem !important; min-height: 0 !important; }
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p { font-size: 1.45rem !important; font-weight: 800 !important; color: #000 !important; margin-bottom: 0.3rem; }
+[data-testid="stSidebar"] [role="radiogroup"] { gap: 0.15rem; }
+[data-testid="stSidebar"] [role="radiogroup"] label { padding: 0.2rem 0; align-items: center; }
+[data-testid="stSidebar"] [role="radiogroup"] label p { font-size: 1.15rem !important; color: #000; font-weight: 600; }
+[data-testid="stRadioOption"] > div > div:first-child { transform: scale(1.2); margin-right: 0.4rem; }
+[data-testid="stExpander"] summary p { font-size: 1.2rem !important; color: #111; font-weight: 600; }
+[data-testid="stMetricLabel"] p { font-size: 1.15rem !important; color: #222 !important; }
+[data-testid="stMetricValue"] { font-size: 2.6rem !important; }
+[data-testid="stAlert"] p { font-size: 1.3rem !important; font-weight: 600; }
+button[kind="primary"] { min-height: 3.6rem; }
+button[kind="primary"] p { font-size: 1.6rem !important; font-weight: 800; color: #fff !important; }
+mark { background: #fff3bf; padding: 0 2px; }
+textarea:disabled, [data-baseweb="textarea"]:has(textarea:disabled) { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; font-weight: 500 !important; cursor: text !important; }
+[data-baseweb="textarea"], [data-baseweb="base-input"] { opacity: 1 !important; }
+</style>
+"""
+
 # ==================================================
 # 말투 바꾸기 (src/ko_style.py, D-050)
 #   한→영 번역 화면(이전 실험)은 11/18에 앱에서 뺐습니다. 코드는 git 기록(c959008 이전 app.py)에 있습니다.
@@ -20,9 +52,8 @@ KO_MODES = {
     "R": "작가 글 참고 (RAG)",
 }
 from src.ko_style import DEMO_AUTHORS
-# 데모는 작가 3인(이광수·이상·이육사)만 보여 준다(11/18, 팀원·블로그 코퍼스 대신 공개 작가 글로 교체).
-# 팀원·블로그 문체를 다시 띄우려면: {**DEMO_AUTHORS, "나경": "nakyung", "강희": "ganghee", "수영": "suyoung", "스머프 할배 블로그": "blog"}
-KO_PERSONAS = dict(DEMO_AUTHORS)
+# 작가 3인(이광수·이상·이육사) + 팀원 3인 + 블로그(11/18 다시 추가)
+KO_PERSONAS = {**DEMO_AUTHORS, "나경": "nakyung", "강희": "ganghee", "수영": "suyoung", "스머프 할아버지": "blog"}
 DUMMY_KO_SOURCE = (  # 데모 기본 예시 글(AI가 쓴 듯한 평범한 글, 3문단)
     "가을이 되면 많은 사람들이 책을 읽고 싶어진다. 선선한 바람과 맑은 하늘은 마음을 차분하게 만들어 주고, "
     "길어진 밤은 한 권의 책에 집중할 수 있는 시간을 준다. 이러한 이유로 가을은 예로부터 독서의 계절이라고 불려 왔다.\n\n"
@@ -97,7 +128,7 @@ def render_ko_metrics(r, user, persona):
 
 STATUS_KO = {  # 화면에 보이는 뜻 확인 결과 문구
     "PASS": "통과",
-    "REVIEW": "확인 필요",
+    "REVIEW": "대체로 같음 (표현이 많이 바뀐 문장 있음)",
     "FAIL": "실패 (재변환 후에도 오류 남음)",
 }
 
@@ -108,7 +139,7 @@ def render_ko_check(r):
     from src import ko_pipeline, ko_verify
     v, chk = r["verify"], r.get("check") or {}
     status = chk.get("status", v["verdict"])
-    (st.success if status == "PASS" else st.error if status == "FAIL" else st.warning)(
+    (st.success if status == "PASS" else st.error if status == "FAIL" else st.info)(
         f"뜻 확인: {STATUS_KO.get(status, status)}")
     if len(chk.get("attempts", [])) > 1:
         st.caption("재변환: " + ko_pipeline.history_line(chk))
@@ -119,19 +150,19 @@ def render_ko_check(r):
         st.caption(chk["note"])
     if status != "REVIEW" or not chk.get("review"):
         return
-    st.markdown("**확인할 문장** (자동 수정 안 함)")
+    exp = st.expander(f"참고: 표현이 많이 바뀐 문장 {len(chk['review'])}개")  # 기본은 접어 둠
     marks = [p["sentence"] for p in chk["review"] if p["where"] == "output"]
     if marks:
         body = "".join(f"<mark>{html.escape(t)}</mark>" if m else html.escape(t)
                        for t, m in ko_verify.mark_segments(r["converted"], marks))
         body = body.replace("\n", "<br>")  # 빈 줄이 있으면 HTML 블록이 끊겨 빈 상자로 보이는 문제 방지
-        st.markdown(f"<div style='line-height:1.7'>{body}</div>", unsafe_allow_html=True)
+        exp.markdown(f"<div style='line-height:1.7'>{body}</div>", unsafe_allow_html=True)
     for p in chk["review"]:
         where = {"output": "변환문", "source": "원문"}.get(p["where"], "")
-        line = f"- **{', '.join(p['labels'])}**"
+        line = f"- {', '.join(p['labels'])}"
         if p["sentence"]:
             line += f" · {where}: “{p['sentence']}”"
-        st.markdown(line + f"  \n  {' / '.join(dict.fromkeys(p['notes']))}")
+        exp.markdown(line + f"  \n  {' / '.join(dict.fromkeys(p['notes']))}")
 
 
 def render_ko_style(persona, use_dummy, mode):
@@ -141,7 +172,7 @@ def render_ko_style(persona, use_dummy, mode):
         st.warning(f"LINGUA_CORPUS_SPLIT={config.CORPUS_SPLIT} 설정됨. 작가 글 일부만 검색 중. "
                    "Remove-Item Env:LINGUA_CORPUS_SPLIT 실행 후 재시작")
 
-    source = st.text_area("원문", value=DUMMY_KO_SOURCE, height=260)
+    source = st.text_area("원문", value=DUMMY_KO_SOURCE, height=300)
     n_chars = len(source.strip())
     st.caption(f"{n_chars:,}자")
     if 0 < n_chars < 300:  # 문체 판정 점수(1,000자 기준)는 화면에서 뺐으므로 아주 짧을 때만 안내
@@ -168,10 +199,10 @@ def render_ko_style(persona, use_dummy, mode):
     left, right = st.columns(2)
     with left:
         st.subheader("원문")
-        st.text_area("원문", r["source"], height=260, disabled=True, key="out_source", label_visibility="collapsed")
+        st.text_area("원문", r["source"], height=420, disabled=True, key="out_source", label_visibility="collapsed")
     with right:
         st.subheader(f"{r['persona']} 문체")
-        st.text_area("변환문", r["converted"], height=260, disabled=True, label_visibility="collapsed")
+        st.text_area("변환문", r["converted"], height=420, disabled=True, label_visibility="collapsed")
         st.caption(("가짜 결과 · " if r["dummy"] else "") + f"{KO_MODES[r['mode']]} · {r['seconds']:.1f}초")
 
     v = r.get("verify")
@@ -182,7 +213,7 @@ def render_ko_style(persona, use_dummy, mode):
                 for i in v["issues"]:
                     st.markdown(f"- [{i['severity']}] **{i['label_ko']}** · {i['note']}" + (f" (`{i['evidence']}`)" if i.get("evidence") else ""))
             if v["verdict"] == "REVIEW":
-                st.caption("확인 필요 = 뜻이 바뀌었을 가능성 有")
+                st.caption("표현이 많이 바뀐 문장은 참고용 표시 (자동 수정 안 함)")
 
     if "P" in r["mode"]:  # 지금 데모는 R만 쓰므로 표시되지 않음(이전 방식 호환용)
         st.markdown("**적용된 문체 지시**")
@@ -207,12 +238,42 @@ def render_ko_style(persona, use_dummy, mode):
 # ==================================================
 # 화면
 # ==================================================
+# 사이드바: 작가 / 팀원 / 블로그를 묶음별로 나눠 보여 주고, 전체에서 한 명만 고르게 한다
+PERSONA_GROUPS = [
+    ("작가 선택", ["이광수", "이상", "이육사"]),
+    ("팀원 선택", ["나경", "수영", "강희"]),
+    ("기타", ["스머프 할아버지"]),
+]
+
+
+def _only(i):
+    """i번 묶음에서 고르면 다른 묶음의 선택은 지운다."""
+    for j in range(len(PERSONA_GROUPS)):
+        if j != i:
+            st.session_state[f"group_{j}"] = None
+
+
+def pick_persona():
+    if "group_0" not in st.session_state:  # 처음 켰을 때: 이광수만 선택
+        for i, (_, names) in enumerate(PERSONA_GROUPS):
+            st.session_state[f"group_{i}"] = names[0] if i == 0 else None
+    for i, (label, names) in enumerate(PERSONA_GROUPS):
+        if i == len(PERSONA_GROUPS) - 1:
+            st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
+        st.radio(label, names, key=f"group_{i}", on_change=_only, args=(i,),
+                 label_visibility="collapsed" if label == "기타" else "visible")
+        if i == 0:
+            st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
+    return next(st.session_state[f"group_{i}"] for i in range(len(PERSONA_GROUPS))
+                if st.session_state.get(f"group_{i}"))
+
+
 def main():
+    st.markdown(STYLE, unsafe_allow_html=True)
     st.title("Lingua Me")
     st.caption("개인화 번역 비교 및 AI 획일화 정량 비교 지표")
     with st.sidebar:
-        st.header("설정")
-        persona = st.radio("작가 선택", list(KO_PERSONAS))
+        persona = pick_persona()
         ko_mode = "R"  # 작가 글 예시(RAG)만, 문체 지시 없음 (수영 결정 11/12, D-096)
         use_dummy = False  # 가짜 결과 토글은 화면에서 뺐음. 화면만 확인하려면 True로 바꾸면 됨
     render_ko_style(persona, use_dummy, ko_mode)
