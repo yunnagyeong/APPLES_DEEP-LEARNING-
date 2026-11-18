@@ -8,3 +8,4 @@ data/failed_cases/
 .env
 .agents/
 .claude/
+run_k.log
