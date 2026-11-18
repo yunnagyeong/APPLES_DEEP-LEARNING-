@@ -17,7 +17,7 @@
   함께 보고: 단순 argmax 정답률, 입력 자체의 판정(바닥), 형식 검사 통과율, 기능 형태소 변화율.
   분류기: SVM(문단 학습, 글 전체 입력)이 주, Delta는 참고(D-072). 분류기로 예시를 고르지 않는다(D-068).
 """
-import argparse, itertools, json, os, re, sys
+import argparse, time, itertools, json, os, re, sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -120,6 +120,7 @@ def gen(a):
     todo = [(d, t, c) for d in docs for t in PEOPLE for c in a.conds if (a.set, d, t, c) not in done]
     calls = len(todo) * (len(paragraphs(next(iter(docs.values())))) if a.unit == "para" else 1)
     cfg = dict(unit=a.unit, k=a.k, expand=a.expand, boost=a.boost, pairs=a.pairs, version="new")
+    cfg["rules"] = ko_style.RULES_VERSION  # 공통 규칙 판(v1 = 11/18까지, v2 = 추측 덧붙임·예시 구절 금지 추가)
     if a.norules: cfg["norules"] = True
     if a.wording: cfg["wording"] = True
     commit, info = kst.run_commit(), (kst.model_info() if not a.dry else {})
@@ -137,8 +138,13 @@ def gen(a):
         for d, t, c in todo:
             key = f"{a.set}|{d}|{t}|{a.k}|{a.expand}" + ("|pairs" if a.pairs else "")
             if key not in ret:
-                try: ret[key] = retrieve(docs[d], t, a.k, a.expand, source_exclude(d, t), a.pairs)
-                except Exception as e: sys.exit(f"[중단] 검색 실패({key}): {type(e).__name__}: {str(e)[:200]}")
+                for tries in range(4):  # 검색(임베딩) 호출이 한도에 걸리면 60초 쉬고 최대 3번 더(11/19)
+                    try: ret[key] = retrieve(docs[d], t, a.k, a.expand, source_exclude(d, t), a.pairs); break
+                    except Exception as e:
+                        msg = f"{type(e).__name__}: {str(e)[:300]}"
+                        print(f"[검색 실패 {tries + 1}/4] {key}: {msg}", flush=True)
+                        if tries == 3 or not kst.is_429(msg): sys.exit(f"[중단] 검색 실패({key}): {msg}")
+                        time.sleep(60)
                 RET.write_text(json.dumps(ret, ensure_ascii=False, indent=1), encoding="utf-8")
             rec = {"variant": a.variant, "set": a.set, "doc": d, "target": t, "cond": c, "chars": len(docs[d]), "commit": commit, **cfg, **info}
             try:

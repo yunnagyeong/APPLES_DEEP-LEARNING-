@@ -220,7 +220,7 @@ def render_ko_style(persona, use_dummy, mode):
         for line in r["lines"] or ["(지시 없음)"]:
             st.markdown(f"- {line}")
     with st.expander("공통 규칙"):
-        for i, rule in enumerate(ko_style.COMMON_RULES, 1):
+        for i, rule in enumerate(ko_style.RULE_SETS[ko_style.RULES_VERSION], 1):
             st.markdown(f"{i}. {rule}")
 
     if "R" in r["mode"]:

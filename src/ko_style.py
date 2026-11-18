@@ -31,11 +31,25 @@ MODES = ("P", "R", "P+R")
 MIN_CHARS_FOR_STYLE_SCORE = 1000
 SHORT_INPUT_NOTICE = "짧은 글은 문체 차이가 작게 나타납니다."
 
-COMMON_RULES = [
+# 규칙 v1(11/18까지 실험 전부). LINGUA_RULES=v1 이면 이 판으로 생성(이전 결과와 같은 조건 비교·재실행용).
+COMMON_RULES_V1 = [
     "원문에 없는 내용을 더하거나, 있는 내용을 빼지 않는다.",
     "원문의 확신 정도(추측·단정·완곡)를 그대로 유지한다.",
     "원문의 형식(줄글/목록·개조식)과 문단 나눔은 그대로 둔다.",
 ]
+# 규칙 v2(11/19 수영): 수영 검토에서 확신도 변화 24건이 주로 '~한 모양이다/것 같다' 덧붙임, FAIL 1건이 예시 구절 그대로 → 두 줄 추가(B-072). 시험 결과 채택 안 함(기본은 v1)
+COMMON_RULES_V2 = [
+    "원문에 없는 내용을 더하거나, 있는 내용을 빼지 않는다.",
+    "원문의 확신 정도(추측·단정·완곡)를 그대로 유지한다.",
+    "원문에 없는 추측 표현('~한 모양이다', '~것 같다', '~듯하다' 등)을 새로 덧붙이지 않는다.",
+    "원문의 형식(줄글/목록·개조식)과 문단 나눔은 그대로 둔다.",
+    "예시의 구절이나 문장을 그대로 옮겨 쓰지 않는다.",
+]
+# 판 이름: v1(3줄) / v2(추측 금지 + 예시 구절 금지) / v2_copy(v1 + 예시 구절 금지만, 11/19 부작용 원인 가르기)
+RULE_SETS = {"v1": COMMON_RULES_V1, "v2": COMMON_RULES_V2, "v2_copy": COMMON_RULES_V1 + [COMMON_RULES_V2[-1]],
+             "v2_hedge": COMMON_RULES_V1[:2] + [COMMON_RULES_V2[2]] + COMMON_RULES_V1[2:]}
+RULES_VERSION = _os.getenv("LINGUA_RULES", "v1").strip()  # 기본 v1(3줄): 11/19 비교에서 추가 줄이 배정을 떨어뜨리거나(v2_hedge) 과한 고쳐 쓰기를 부름(v2_copy)
+COMMON_RULES = RULE_SETS[RULES_VERSION]  # 지금 쓰는 판(기본 v1 3줄)
 # 목표 인물별 한국어 문체 지시 초안. 기능 이름이 있으면 입력에 그 기능이 있을 때만 넣는다(None은 항상).
 # 수영 줄(D-059·D-061): 문장 길이를 실제 차이(문단당 0.5~1문장)에 맞춘 비례적 서술. 학습 문서 기준 d 어절/문장 +0.83.
 # 한자어+하다·피동 선택형 두 줄은 분류기 특징(하/XSV·되/XSV)과 겹쳐 상한을 떨어뜨려 뺐다(D-061).
@@ -121,7 +135,7 @@ def build_prompt(text: str, lines: list[str], examples: list[dict] | None, versi
     old = version == "old"
     parts = [_OLD_HEAD if old else _NEW_HEAD]
     if not norules:  # norules: 공통 규칙 블록 전체를 뺀 시험(11/16, 규칙이 입력 유지 쪽으로 누르는지 확인용)
-        rules = list(OLD_COMMON_RULES if old else COMMON_RULES) + ([BOOST_RULE] if boost else [])
+        rules = list(OLD_COMMON_RULES if old else RULE_SETS[RULES_VERSION]) + ([BOOST_RULE] if boost else [])
         if wording: rules = [WORDING_SUB.get(r, r) for r in rules]
         parts += ["", "규칙:"] + [f"{i}. {r}" for i, r in enumerate(rules, 1)]
     if lines:
