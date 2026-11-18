@@ -3,6 +3,7 @@ google-genai>=1.40
 python-dotenv
 numpy>=1.26
 kiwipiepy
+hanja            # 검증기: 한자로 쓴 변환문(魯迅→노신)을 한글로 읽어 비교. 없으면 그 문장이 누락·추가로 잡힐 수 있음
 streamlit>=1.46
 pandas
 plotly

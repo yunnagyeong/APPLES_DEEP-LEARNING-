@@ -15,6 +15,9 @@
   use     : 정답률 계산에 넣을지. 유출이 있으면 false(지표에서 뺌)
   엄격 정답률 = (분류 맞힘 AND verdict == PASS) / (use == true 인 건수)
 입력 형식과 판정 기준: docs/KO_VERIFY.md
+새 인물 실험(위키문헌 작가 등)은 팀 스크립트와 같은 환경변수를 앞에 붙인다:
+  LINGUA_PEOPLE=leegwangsu_n18h,leesang_n18h,leeyuksa_n18h LINGUA_SPLIT_INFO=data/eval/split_info_new.json \
+    python scripts/ko_verify_run.py gen --gen <변환결과.jsonl>
 """
 import argparse, csv, json, re, sys
 from collections import Counter
@@ -22,9 +25,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from src import ko_verify as kv  # noqa: E402
-
-PEOPLE = ["ganghee", "nakyung", "suyoung"]
+from src import config, ko_verify as kv  # noqa: E402
+from src.ko_style import PEOPLE  # noqa: E402  팀 코드와 같이 LINGUA_PEOPLE을 따른다(기본 강희·나경·수영)
 LEAK_OVERLAP = 0.5  # 글자 5-gram 기준. 예시가 정답(사람 원문)이나 입력을 이만큼 덮으면 유출
 OUT = ROOT / "results" / "ko_verify"
 
@@ -35,7 +37,8 @@ def read_jsonl(p):
 
 
 def heldout_docs() -> dict[str, set[str]]:
-    info = json.loads((ROOT / "data/eval/split_info.json").read_text(encoding="utf-8"))
+    """평가 문서. LINGUA_SPLIT_INFO를 따른다(새 인물 실험은 data/eval/split_info_new.json, D-097)."""
+    info = json.loads(config.SPLIT_INFO_PATH.read_text(encoding="utf-8"))
     return {u["user"]: set(u["heldout_docs"]) for u in info["users"]}
 
 
@@ -84,7 +87,8 @@ def validate(recs):
     bad = [i for i, r in enumerate(recs)
            if not all(k in r for k in ("id", "target", "input", "output")) or r["target"] not in PEOPLE]
     if bad:
-        sys.exit(f"[중단] 필수 필드(id, target, input, output) 누락이나 알 수 없는 target: {len(bad)}건 (첫 줄 {bad[0] + 1})")
+        sys.exit(f"[중단] 필수 필드(id, target, input, output) 누락이나 알 수 없는 target: {len(bad)}건 (첫 줄 {bad[0] + 1}). "
+                 f"지금 인물 목록 {PEOPLE} — 새 인물이면 LINGUA_PEOPLE·LINGUA_SPLIT_INFO를 앞에 붙이세요.")
     dup = [k for k, c in Counter(r["id"] for r in recs).items() if c > 1]
     if dup:
         sys.exit(f"[중단] id 중복: {dup[:5]}")

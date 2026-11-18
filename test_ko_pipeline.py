@@ -157,6 +157,96 @@ def test_strip_meta_keeps_real_sentences():
         assert ko_verify.strip_meta(legit, legit) == legit.strip()
 
 
+def test_old_spelling_negation_is_negation():
+    """'아니하다'(옛 표기, 이광수 등)도 부정으로 본다. 뜻이 같으면 PASS, 부정이 사라지면 REVIEW."""
+    src = "이 방법은 효과가 크지 않다. 많은 사람이 이를 받아들이지 않았다. 그래도 연구는 계속되었다."
+    same = "이 방법은 효과가 크지 아니하다. 많은 사람이 이를 받아들이지 아니하였다. 그래도 연구는 계속되었다."
+    lost = "이 방법은 효과가 크다. 많은 사람이 이를 받아들이지 아니하였다. 그래도 연구는 계속되었다."
+    assert ko_verify.verify(src, same)["verdict"] == "PASS"
+    assert any(i["type"] == "NEGATION_FLIP" for i in ko_verify.verify(src, lost)["issues"])
+
+
+def _types(a, b):
+    return {i["type"] for i in ko_verify.verify(a, b, check_format=False)["issues"] if i["severity"] != "minor"}
+
+
+# 문체를 바꿔도 뜻이 같은 쌍(오탐이면 안 됨) — 파트너 검토지(new18h_para)에서 나온 실제 유형
+SAME_MEANING = [
+    ("이는 중요한 과정이다.", "이는 중요한 과정이 아니겠는가."),                                   # 부정 수사 의문 = 긍정
+    ("인간은 한계 속에 갇혀 살아가지만, 영화는 경험을 제공한다.",
+     "인간은 한계 속에 갇혀 살아가지 않으랴마는, 영화는 경험을 제공한다."),                       # 문장 가운데 수사 의문
+    ("이 문제는 꼭 해결해야 한다.", "이 문제는 해결하지 않을 수 없다."),                         # 이중부정 = 강한 긍정
+    ("이는 차이를 넘어 시선이다.", "이는 단순한 차이에 그치지 않고 시선이다."),                       # 대조 '그치지 않고'
+    ("이는 문제를 넘어 구조의 문제다.", "이는 단순한 문제가 아니라 구조의 문제다."),                   # 대조 'A가 아니라 B'
+    ("그는 결국 무너진다.", "그는 결국 무너지고 만다."),                                             # '-고 말다' ≠ 금지
+    ("그것은 한낱 핑계일 뿐이다.", "그것은 한낱 핑계에 지나지 않는다."),                               # '지나지 않다' = 뿐이다
+    ("상해는 거대한 현장과 같다.", "상해는 거대한 현장과 다를 바가 없다."),                             # 굳은 말
+    ("문화를 꽃피울 수 없다.", "문화를 꽃피울 수가 없다."),                                           # 조사만 다름
+    ("그는 맥락을 고려하지 못하고 하나에 집중한다.", "그는 맥락을 굽어볼 줄 모르고 하나에 집중한다."),   # '줄 모르다' = 못하다
+    ("감정은 순종, 경외, 혹은 무감각인 경우가 많다.", "감정은 순종이요 경외요, 아니면 무감각인 경우가 허다하다."),  # 아니면 = 또는
+    ("서사는 무력함을 그대로 인정한다.", "서사는 무력함을 가감 없이 그대로 인정한다."),                       # 낱말 속 '없'
+    ("사랑은 인격적 과업이라 할 수 있다.", "사랑은 인격적 과업이라 하겠다."),                           # 결론 말투
+    ("예술성을 뒷받침할 수 있는 제작 환경을 조성해야 한다.", "예술성을 북돋워 줄 제작 환경을 마련해야 한다."),  # 능력 '수 있는'
+    ("이야기는 단면을 그대로 드러낸다.", "이야기는 단면을 그대로 드러내 보이는 것이다."),               # 보조 '보이다'
+    ("조언을 들었다면 좋았겠다.", "조언을 들을 수 있었다면 좋았겠다."),                                 # 과거 능력·가정
+    ("그는 언제나 성실하다.", "그는 늘 성실하다."),                                                     # 같은 뜻 범위어
+]
+
+# 진짜 뜻 변화(놓치면 안 됨)
+MEANING_CHANGED = [
+    ("이 방법은 효과가 있다.", "이 방법은 효과가 없다.", "NEGATION_FLIP"),
+    ("그는 결과를 받아들였다.", "그는 결과를 받아들이지 않았다.", "NEGATION_FLIP"),
+    ("그러나 상처받지 않기 위해 성벽을 쌓을수록 교류는 차단된다.",
+     "그러나 상처받기 위해 성벽을 쌓을수록 교류는 차단된다.", "NEGATION_FLIP"),
+    ("아이는 풍경이 다름을 이해하지 못하고 그저 자기 모습을 고른다.",
+     "아이는 풍경이 다름을 이해하고 그저 자기 모습을 고른다.", "NEGATION_FLIP"),                    # '그저'가 있어도 '못'은 셈
+    ("그러나 상처받지 않기 위해 성벽을 쌓을수록 교류는 차단된다.",
+     "그러나 상처받지 않기 위해 성벽을 쌓을수록 교류는 차단되는 것을 어찌하리오.", None),       # 끝 수사 의문은 앞 부정을 지우지 않음(뒤집힘 없음)
+    ("이 정책은 효과를 낸다.", "이 정책은 효과를 낼 수 있다.", "MODALITY_SHIFT"),
+    ("이 정책은 효과를 낸다.", "이 정책은 효과를 내는 모양이다.", "MODALITY_SHIFT"),                   # '모양이다' = 추측
+    ("결과가 좋다.", "결과가 좋아 보인다.", "MODALITY_SHIFT"),                                          # 형용사+어 보이다 = 추측
+    ("사람들은 그를 신뢰한다.", "모든 사람들은 그를 신뢰한다.", "SCOPE_CHANGE"),
+]
+
+
+def test_style_changes_with_same_meaning_pass():
+    bad = [(a, b, _types(a, b)) for a, b in SAME_MEANING if _types(a, b)]
+    assert not bad, bad
+
+
+def test_real_meaning_changes_are_caught():
+    missed = [(a, b, want) for a, b, want in MEANING_CHANGED if want and want not in _types(a, b)]
+    wrong = [(a, b) for a, b, want in MEANING_CHANGED if want is None and "NEGATION_FLIP" in _types(a, b)]
+    assert not wrong, wrong
+    assert not missed, missed
+
+
+def test_merged_sentences_keep_negation_check():
+    """두 문장을 한 문장으로 합쳐도 부정 비교는 합친 두 문장 전체와 한다(합친 쪽에서 부정이 생기면 잡음)."""
+    src = "근무 환경이 피로의 원인이 될 수 있다. 따라서 조직은 응답을 요구하지 않는 규범을 마련해야 한다."
+    same = "근무 환경이 피로의 원인이 될 수 있으므로, 따라서 조직은 응답을 요구하지 않는 규범을 마련해야 한다."
+    flip = "근무 환경이 피로의 원인이 될 수 있으므로, 따라서 조직은 응답을 요구하지 않는 규범을 마련해야 하지 않는다."
+    assert "NEGATION_FLIP" not in _types(src, same)
+    assert "NEGATION_FLIP" in _types(src, flip)
+
+
+def test_native_vocabulary_rewrite_is_not_example_copy():
+    """고유어로 많이 바꾸는 문체(경험하다→겪다)는 새 낱말이 예시에 있어도 원문 문장을 바꿔 쓴 것이면 베낌이 아니다.
+    원문과 상관없는 예시 문장을 끼워 넣으면 베낌(FAIL)."""
+    src = "인간은 태어나서 죽음에 이르기까지 다양한 형태로 사랑을 경험한다. 그 과정에서 삶의 의미를 재구성한다."
+    out = "인간은 나면서 죽음에 이르기까지 여러 가지 모양으로 사랑을 겪는다. 그 길에서 삶의 뜻을 다시 짓는다."
+    ex = [{"id": "x", "text": "나는 여러 가지 모양으로 세상을 겪었다. 그 길에서 뜻을 다시 지었다. 바닷가 마을의 겨울 바람은 몹시 매서웠다."}]
+    assert "EXAMPLE_COPY" not in {i["type"] for i in ko_verify.verify(src, out, ex, check_format=False)["issues"]}
+    inserted = out + " 바닷가 마을의 겨울 바람은 몹시 매서웠다."
+    assert ko_verify.verify(src, inserted, ex, check_format=False)["verdict"] == "FAIL"
+
+
+def test_sino_numerals_in_hangul_match_digits():
+    """'100년'→'백 년', '2호선'→'이 호선'은 같은 수. 다른 수로 바뀌면 FAIL."""
+    assert ko_verify.check_numbers("100년이 넘었다. 2호선을 탔다.", "백 년이 넘었다. 이 호선을 탔다.") == []
+    assert any(i["type"] == "NUMBER_MISMATCH" for i in ko_verify.check_numbers("100년이 넘었다.", "이백 년이 넘었다."))
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     failed = 0
