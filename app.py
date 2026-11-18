@@ -123,7 +123,8 @@ KO_MODES = {
     "P": "P · 문체 지시만",
     "R": "R · 본인 글 예시만",
 }
-KO_PERSONAS = {**PERSONAS, "스머프 할배 블로그": "blog"}  # 블로그 코퍼스는 한→한 데모의 문체 옵션으로만 둔다(평가·분류기 제외)
+from src.ko_style import DEMO_AUTHORS
+KO_PERSONAS = {**PERSONAS, "스머프 할배 블로그": "blog", **DEMO_AUTHORS}  # 블로그 코퍼스는 한→한 데모의 문체 옵션으로만 둔다(평가·분류기 제외)
 DUMMY_KO_SOURCE = ("최근 AI가 쓴 글은 서로 비슷해지는 경향이 있습니다. 그러나 사람마다 글을 쓰는 방식은 다릅니다. "
                    "이 차이는 말투에 그대로 드러나므로 번역에서도 지켜져야 합니다. 따라서 개인의 문체를 반영하는 변환이 필요합니다.")
 DUMMY_KO_OUTPUTS = {  # 가짜 결과(화면 확인용): 실제 모델 출력이 아님
@@ -150,7 +151,7 @@ def run_ko_style(source, user, mode, use_dummy):
     start = time.time()
     dummy = None
     if use_dummy:
-        dummy = DUMMY_KO_OUTPUTS[user] if source.strip() == DUMMY_KO_SOURCE else "[가짜 결과] " + source
+        dummy = DUMMY_KO_OUTPUTS.get(user) if source.strip() == DUMMY_KO_SOURCE and user in DUMMY_KO_OUTPUTS else "[가짜 결과] " + source
     # 변환 → 규칙 검증 → FAIL이면 자동 재번역(최대 1회), REVIEW는 표시만 (src/ko_pipeline.py, 강희)
     r = ko_pipeline.convert_checked(source, user, mode, dummy_output=dummy)
     r["seconds"] = time.time() - start

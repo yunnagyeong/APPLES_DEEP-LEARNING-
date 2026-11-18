@@ -24,7 +24,9 @@ from . import config
 import os as _os
 PEOPLE = [p.strip() for p in _os.getenv("LINGUA_PEOPLE", "ganghee,nakyung,suyoung").split(",") if p.strip()]
 # 데모 전용 문체 옵션(평가·분류기에는 넣지 않음). data/raw/corpus_<id>_raw.jsonl + 예시·색인이 있어야 함. blog = 블로그 코퍼스(11/12)
-DEMO_STYLES = ["blog"]
+# 작가 3인(위키문헌, 한자 병기 제거본 n18h, 11/16 B-054) — 데모 옵션 전용. 전체 코퍼스 색인 필요: python scripts/build_index.py <id> (LINGUA_CORPUS_SPLIT 없이)
+DEMO_AUTHORS = {"이광수": "leegwangsu_n18h", "이상": "leesang_n18h", "이육사": "leeyuksa_n18h"}
+DEMO_STYLES = ["blog", *DEMO_AUTHORS.values()]
 MODES = ("P", "R", "P+R")
 MIN_CHARS_FOR_STYLE_SCORE = 1000
 SHORT_INPUT_NOTICE = "짧은 글은 문체 차이가 작게 나타납니다."
@@ -107,15 +109,21 @@ def p_lines_for(target: str, text: str, version: str = "new"):
     return [line for fn, line in table[target] if fn is None or fn in present], mode
 
 
+# wording: "형식"이 문장 형식(어미)으로 읽혀 입력 유지를 누르는지 확인(11/16 수영 가설). 뜻은 같게 "글 구성"으로만 바꿈
+WORDING_SUB = {"원문의 형식(줄글/목록·개조식)과 문단 나눔은 그대로 둔다.": "원문의 글 구성(줄글인지 목록·개조식인지)과 문단 나눔은 그대로 둔다.",
+               _NEW_EX: "아래는 이 필자가 쓴 다른 글입니다. 단어와 말투만 참고하고, 예시의 글 구성과 내용은 따르지 마세요."}
 BOOST_RULE = "뜻과 형식은 유지하되 단어·어미·연결 표현은 이 필자처럼 적극적으로 바꿔도 된다."  # D-072 ③ 변환 강도 시험용(기본 꺼짐)
+WORDING_SUB[BOOST_RULE] = "뜻과 글 구성은 유지하되 단어·어미·연결 표현은 이 필자처럼 적극적으로 바꿔도 된다."
 
 
-def build_prompt(text: str, lines: list[str], examples: list[dict] | None, version: str = "new", boost: bool = False) -> str:
+def build_prompt(text: str, lines: list[str], examples: list[dict] | None, version: str = "new", boost: bool = False, norules: bool = False, wording: bool = False) -> str:
     _check_version(version)
     old = version == "old"
-    parts = [_OLD_HEAD if old else _NEW_HEAD, "", "규칙:"]
-    rules = list(OLD_COMMON_RULES if old else COMMON_RULES) + ([BOOST_RULE] if boost else [])
-    parts += [f"{i}. {r}" for i, r in enumerate(rules, 1)]
+    parts = [_OLD_HEAD if old else _NEW_HEAD]
+    if not norules:  # norules: 공통 규칙 블록 전체를 뺀 시험(11/16, 규칙이 입력 유지 쪽으로 누르는지 확인용)
+        rules = list(OLD_COMMON_RULES if old else COMMON_RULES) + ([BOOST_RULE] if boost else [])
+        if wording: rules = [WORDING_SUB.get(r, r) for r in rules]
+        parts += ["", "규칙:"] + [f"{i}. {r}" for i, r in enumerate(rules, 1)]
     if lines:
         parts += ["", "문체 지시:"] + [f"- {l}" for l in lines]
     if examples and all("ai" in e for e in examples):
@@ -123,7 +131,7 @@ def build_prompt(text: str, lines: list[str], examples: list[dict] | None, versi
         for i, e in enumerate(examples, 1):
             parts += [f"예시{i}", f"[AI가 쓴 글] {e['ai']}", f"[이 필자가 쓴 글] {e['text']}"]
     elif examples:
-        parts += ["", _OLD_EX if old else _NEW_EX]
+        parts += ["", _OLD_EX if old else (WORDING_SUB[_NEW_EX] if wording else _NEW_EX)]
         parts += [f"예시{i}: {e['text']}" for i, e in enumerate(examples, 1)]
     parts += ["", "원문:", text, "", "다시 쓴 글만 출력하세요. 설명이나 제목은 쓰지 마세요."]
     return "\n".join(parts)
@@ -145,7 +153,7 @@ def retrieve_examples(text: str, user: str, exclude_doc_ids: set[str] | None = N
 
 def convert_style(text: str, user: str, mode: str = "R", *, examples: list[dict] | None = None,
                   exclude_doc_ids: set[str] | None = None, dummy_output: str | None = None,
-                  version: str = "new", boost: bool = False, verify: bool = False) -> dict:
+                  version: str = "new", boost: bool = False, verify: bool = False, norules: bool = False, wording: bool = False) -> dict:
     """text를 user의 문체로 바꾼다.
 
     mode: "R"(본인 글 예시만, 기본 — 문체 지시 없이 RAG만 쓰기로 함, D-096) / "P"(문체 지시만) / "P+R"(실험 비교용으로만 남김). 공통 규칙은 항상 들어간다.
@@ -172,7 +180,7 @@ def convert_style(text: str, user: str, mode: str = "R", *, examples: list[dict]
             used = [{"id": "dummy", "score": 0.0, "type": "예시", "text": "(데모용 가짜 예시)"}]
         else:
             used = retrieve_examples(text, user, exclude_doc_ids)
-    prompt = build_prompt(text, lines, used or None, version, boost)
+    prompt = build_prompt(text, lines, used or None, version, boost, norules, wording)
     converted = dummy_output if dummy_output is not None else generate(prompt)
     r = {"converted": converted, "lines": lines, "examples": used, "mode": mode, "gate_mode": gate_mode, "prompt": prompt, "version": version, "boost": boost}
     if verify:

@@ -120,6 +120,8 @@ def gen(a):
     todo = [(d, t, c) for d in docs for t in PEOPLE for c in a.conds if (a.set, d, t, c) not in done]
     calls = len(todo) * (len(paragraphs(next(iter(docs.values())))) if a.unit == "para" else 1)
     cfg = dict(unit=a.unit, k=a.k, expand=a.expand, boost=a.boost, pairs=a.pairs, version="new")
+    if a.norules: cfg["norules"] = True
+    if a.wording: cfg["wording"] = True
     commit, info = kst.run_commit(), (kst.model_info() if not a.dry else {})
     print(f"[변형 {a.variant}] {cfg} / 커밋 {commit} / 남은 (글,목표,조건) {len(todo)}개 (대략 호출 {calls}회 안팎)")
     if a.dry:
@@ -129,7 +131,7 @@ def gen(a):
         ex = [{"text": f"(예시 본문 — {t}의 학습용 글 {a.k}개{'(+이웃 청크 ' + str(a.expand) + ')' if a.expand else ''})"}] if "R" in c else None
         if ex and a.pairs: ex = [{"ai": "(AI가 다시 쓴 문단)", "text": f"({t}이 실제로 쓴 같은 문단)"}] * a.k
         print(f"=== {d} → {t} · {c} · 지시 {len(lines)}줄 (판단: {mode}) ===")
-        print(ko_style.build_prompt(unit if len(unit) < 600 else unit[:600] + "…", lines if "P" in c else [], ex, "new", a.boost)); return
+        print(ko_style.build_prompt(unit if len(unit) < 600 else unit[:600] + "…", lines if "P" in c else [], ex, "new", a.boost, a.norules, a.wording)); return
     consec = 0
     with GEN.open("a", encoding="utf-8") as f:
         for d, t, c in todo:
@@ -141,7 +143,7 @@ def gen(a):
             rec = {"variant": a.variant, "set": a.set, "doc": d, "target": t, "cond": c, "chars": len(docs[d]), "commit": commit, **cfg, **info}
             try:
                 units = paragraphs(docs[d]) if a.unit == "para" else [docs[d]]
-                rs = [ko_style.convert_style(u, t, c, examples=ret[key], version="new", boost=a.boost) for u in units]
+                rs = [ko_style.convert_style(u, t, c, examples=ret[key], version="new", boost=a.boost, norules=a.norules, wording=a.wording) for u in units]
                 rec.update(output="\n\n".join(r["converted"] for r in rs), lines=[r["lines"] for r in rs], gate_mode=[r["gate_mode"] for r in rs],
                            example_ids=[x["id"] for x in rs[0]["examples"]], prompts=[r["prompt"] for r in rs], error=""); consec = 0
             except Exception as e:
@@ -255,7 +257,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(); sp = ap.add_subparsers(dest="cmd", required=True)
     g = sp.add_parser("gen"); g.add_argument("--set", default="select", choices=["select", "confirm"]); g.add_argument("--variant", required=True)
     g.add_argument("--unit", choices=["doc", "para"], default="doc"); g.add_argument("--k", type=int, default=4); g.add_argument("--expand", type=int, default=0)
-    g.add_argument("--boost", action="store_true"); g.add_argument("--dry", action="store_true")
+    g.add_argument("--boost", action="store_true"); g.add_argument("--norules", action="store_true", help="공통 규칙 3개 블록을 프롬프트에서 뺌(시험)"); g.add_argument("--wording", action="store_true", help="규칙3·예시 안내의 '형식'을 '글 구성'으로(시험)"); g.add_argument("--dry", action="store_true")
     g.add_argument("--pairs", action="store_true", help="R 예시를 짝 예시(AI 글 ↔ 이 필자의 글)로 (D-078)")
     g.add_argument("--conds", nargs="+", choices=CONDS, default=["R"], help="돌릴 조건(기본 R만, D-096)")
     r = sp.add_parser("report"); r.add_argument("--set", default="select", choices=["select", "confirm"]); r.add_argument("--variant", nargs="*")
