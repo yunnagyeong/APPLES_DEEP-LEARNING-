@@ -24,8 +24,8 @@ from . import config
 import os as _os
 PEOPLE = [p.strip() for p in _os.getenv("LINGUA_PEOPLE", "ganghee,nakyung,suyoung").split(",") if p.strip()]
 # 데모 전용 문체 옵션(평가·분류기에는 넣지 않음). data/raw/corpus_<id>_raw.jsonl + 예시·색인이 있어야 함. blog = 블로그 코퍼스(11/12)
-# 작가 3인(위키문헌, 한자 병기 제거본 n18h, 11/16 B-054) — 데모 옵션 전용. 전체 코퍼스 색인 필요: python scripts/build_index.py <id> (LINGUA_CORPUS_SPLIT 없이)
-DEMO_AUTHORS = {"이광수": "leegwangsu_n18h", "이상": "leesang_n18h", "이육사": "leeyuksa_n18h"}
+# 작가 3인(위키문헌 n18, 한자 병기 유지 — 수영 결정 11/18) — 데모 옵션 전용. 전체 코퍼스 색인 필요: python scripts/build_index.py <id> (LINGUA_CORPUS_SPLIT 없이)
+DEMO_AUTHORS = {"이광수": "leegwangsu_n18", "이상": "leesang_n18", "이육사": "leeyuksa_n18"}
 DEMO_STYLES = ["blog", *DEMO_AUTHORS.values()]
 MODES = ("P", "R", "P+R")
 MIN_CHARS_FOR_STYLE_SCORE = 1000
@@ -153,7 +153,8 @@ def retrieve_examples(text: str, user: str, exclude_doc_ids: set[str] | None = N
 
 def convert_style(text: str, user: str, mode: str = "R", *, examples: list[dict] | None = None,
                   exclude_doc_ids: set[str] | None = None, dummy_output: str | None = None,
-                  version: str = "new", boost: bool = False, verify: bool = False, norules: bool = False, wording: bool = False) -> dict:
+                  version: str = "new", boost: bool = False, verify: bool = False, norules: bool = False, wording: bool = False,
+                  unit: str = "doc") -> dict:
     """text를 user의 문체로 바꾼다.
 
     mode: "R"(본인 글 예시만, 기본 — 문체 지시 없이 RAG만 쓰기로 함, D-096) / "P"(문체 지시만) / "P+R"(실험 비교용으로만 남김). 공통 규칙은 항상 들어간다.
@@ -161,6 +162,8 @@ def convert_style(text: str, user: str, mode: str = "R", *, examples: list[dict]
     exclude_doc_ids: 검색에서 뺄 문서 id(평가 실험용). 데모는 None = 전체 코퍼스.
     dummy_output: 주면 검색·모델 호출 없이 이 문자열을 변환문으로 쓴다(데모 가짜 결과).
     version: "new"(기본, 현재 프롬프트) / "old"(커밋 24ae462의 프롬프트, 두 판 비교용 D-063).
+    unit: "doc"(기본, 글 통째 1회) / "para"(예시는 글 전체 기준 1회 검색, 생성은 빈 줄 기준 문단마다 1회 후 이어 붙임 — 11/18 수영 채택, B-066).
+          문단이 하나뿐이거나 가짜 결과면 doc과 같다. 검증은 이어 붙인 글 전체 기준.
     verify: True면 규칙 기반 의미 검증(src/ko_verify, 강희)을 돌려 r["verify"]에 넣는다(API 호출 없음). 변환문을 바꾸지 않고 판정만 붙인다.
     반환: {"converted", "lines"(적용된 지시), "examples"(사용한 예시), "mode", "gate_mode", "prompt", "verify"(verify=True일 때)}
     """
@@ -180,9 +183,18 @@ def convert_style(text: str, user: str, mode: str = "R", *, examples: list[dict]
             used = [{"id": "dummy", "score": 0.0, "type": "예시", "text": "(데모용 가짜 예시)"}]
         else:
             used = retrieve_examples(text, user, exclude_doc_ids)
-    prompt = build_prompt(text, lines, used or None, version, boost, norules, wording)
-    converted = dummy_output if dummy_output is not None else generate(prompt)
-    r = {"converted": converted, "lines": lines, "examples": used, "mode": mode, "gate_mode": gate_mode, "prompt": prompt, "version": version, "boost": boost}
+    prompt = build_prompt(text, lines, used or None, version, boost, norules, wording)  # 글 전체 기준(재생성 등에 씀)
+    paras = [p.strip() for p in re.split(r"\n\s*\n", text.strip()) if p.strip()] if unit == "para" else []
+    prompts = None
+    if dummy_output is not None:
+        converted = dummy_output
+    elif len(paras) > 1:
+        prompts = [build_prompt(p, lines, used or None, version, boost, norules, wording) for p in paras]
+        converted = "\n\n".join(generate(pp, "문체 변환(문단)") for pp in prompts)
+    else:
+        converted = generate(prompt)
+    r = {"converted": converted, "lines": lines, "examples": used, "mode": mode, "gate_mode": gate_mode, "prompt": prompt, "version": version, "boost": boost,
+         "unit": unit if prompts else "doc", "prompts": prompts}
     if verify:
         from . import ko_verify
         r["verify"] = ko_verify.verify(text, converted, used or None)

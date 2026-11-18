@@ -63,7 +63,8 @@ def fix_prompt(source: str, previous: str, verify_result: dict) -> str:
 
 def convert_checked(text: str, user: str, mode: str = "R", *, max_retries: int = DEFAULT_MAX_RETRIES,
                     examples: list[dict] | None = None, exclude_doc_ids: set[str] | None = None,
-                    dummy_output: str | None = None, version: str = "new", boost: bool = False) -> dict:
+                    dummy_output: str | None = None, version: str = "new", boost: bool = False,
+                    unit: str = "doc") -> dict:
     """convert_style + 검증 + FAIL이면 재번역. 반환은 convert_style 결과에 아래를 더한 것.
       converted, verify : 가장 좋은 시도의 변환문과 검증 결과 (화면·후속 코드는 이 둘만 보면 된다)
       check : {status, message, first_verdict, first_output, retries, best_attempt, attempts, review}
@@ -72,7 +73,7 @@ def convert_checked(text: str, user: str, mode: str = "R", *, max_retries: int =
     from . import ko_style, ko_verify
 
     r = ko_style.convert_style(text, user, mode, examples=examples, exclude_doc_ids=exclude_doc_ids,
-                               dummy_output=dummy_output, version=version, boost=boost, verify=True)
+                               dummy_output=dummy_output, version=version, boost=boost, verify=True, unit=unit)
     used = r["examples"] or None
     attempts = [{"n": 1, "how": "첫 변환", "output": r["converted"], "verify": r["verify"],
                  "api_call": dummy_output is None}]

@@ -153,7 +153,7 @@ def run_ko_style(source, user, mode, use_dummy):
     if use_dummy:
         dummy = DUMMY_KO_OUTPUTS.get(user) if source.strip() == DUMMY_KO_SOURCE and user in DUMMY_KO_OUTPUTS else "[가짜 결과] " + source
     # 변환 → 규칙 검증 → FAIL이면 자동 재번역(최대 1회), REVIEW는 표시만 (src/ko_pipeline.py, 강희)
-    r = ko_pipeline.convert_checked(source, user, mode, dummy_output=dummy)
+    r = ko_pipeline.convert_checked(source, user, mode, dummy_output=dummy, unit="para")  # 문단마다 생성(11/18 수영 채택, B-066)
     r["seconds"] = time.time() - start
     return r
 
