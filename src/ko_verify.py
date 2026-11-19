@@ -49,7 +49,9 @@ SEVERITY = {
     "EXAMPLE_COPY": "critical",
     "OMISSION": "major",
     "ADDITION": "major",
-    "LOW_RECALL": "major",
+    "LOW_RECALL": "critical",   # 원문 내용 절반 가까이가 사라짐(잘린 재번역 등) → 재번역 (11-19 파트너 제안)
+    "TRUNCATED": "critical",
+    "EXAMPLE_ENTITY": "major",
     "ENTITY_MISSING": "major",
     "NEGATION_FLIP": "major",
     "MODALITY_SHIFT": "major",
@@ -65,7 +67,7 @@ SEVERITY = {
 LABEL_KO = {
     "EMPTY_OUTPUT": "빈 출력", "META_TEXT": "설명·머리말 섞임", "NUMBER_MISMATCH": "숫자 불일치",
     "EXAMPLE_COPY": "검색 예시 베낌", "OMISSION": "내용 누락", "ADDITION": "원문에 없는 내용 추가",
-    "LOW_RECALL": "전체 내용 이탈", "ENTITY_MISSING": "고유명사 누락", "ENTITY_ADDED": "고유명사 추가", "ENTITY_WEAK": "두 글자 고유명사 누락", "PARAPHRASE": "많이 바꿔 씀(뜻 확인 권장)",
+    "LOW_RECALL": "전체 내용 이탈", "TRUNCATED": "글이 잘림", "EXAMPLE_ENTITY": "예시에 있던 고유명사 생김(오분석일 수 있음)", "ENTITY_MISSING": "고유명사 누락", "ENTITY_ADDED": "고유명사 추가", "ENTITY_WEAK": "두 글자 고유명사 누락", "PARAPHRASE": "많이 바꿔 씀(뜻 확인 권장)",
     "NEGATION_FLIP": "부정 뒤집힘", "MODALITY_SHIFT": "확신도 변화", "SCOPE_CHANGE": "범위 표현 변화",
     "MODALITY_MINOR": "추측 표현 개수 차이", "SCOPE_MINOR": "약한 범위어 변화", "NATIVE_NUMBER": "수사 차이",
     "FORMAT": "형식 변화",
@@ -81,6 +83,8 @@ COPY_NGRAM = 5             # 예시와 이 길이(어절) 이상 같고 원문�
 EXAMPLE_CONTENT_MIN = 0.60  # 추가로 표시된 문장의 내용어가 예시에 이만큼 있으면 예시에서 온 내용
 UNCHANGED_RATIO = 0.97     # 어절 열 일치도가 이 이상이면 '거의 그대로'
 REWRITE_MIN = 0.25          # 예시 내용어 베낌 판단 전에 '원문 문장을 바꿔 쓴 것'으로 볼 겹침(표본: 바꿔 씀 0.33~0.54, 끼워 넣은 예시 문장 ~0.1)
+TRUNC_RATIO = 0.70          # 변환문/원문 글자 수가 이보다 작으면 잘린 것으로 봄(FAIL)
+TRUNC_MIN_SOURCE = 200      # 짧은 글은 길이 비가 흔들려 이 길이 이상일 때만 봄
 PARA_MIN_SIM = 0.20         # 같은 자리 '누락'·'추가'를 바꿔 쓴 짝으로 볼 최소 겹침(표본: 바꿔 씀 0.2~0.5, 남의 문장 ~0)
 ALIGN_MIN = 0.60           # 부정·추측 뒤집힘은 내용어가 이만큼 겹치는 대응 문장끼리만 비교(없으면 판단 안 함)
 
@@ -290,8 +294,27 @@ def check_entities(src: str, out: str, s_toks, o_toks, example_text: str = "") -
     if added:
         from_ex = [e for e in added if example_text and e.lower() in example_text.lower()]
         note = f"원문에 없는 고유명사: {', '.join(added)}" + (f" (그중 검색 예시에 있던 것: {', '.join(from_ex)})" if from_ex else "")
-        issues.append(_issue("EXAMPLE_COPY" if from_ex else "ENTITY_ADDED", note))
+        if not from_ex:
+            issues.append(_issue("ENTITY_ADDED", note))
+        else:
+            # Kiwi가 옛 표기·한자어를 고유명사로 잘못 붙이는 일이 있어('別離[별리]', '대상이로소이다'의 '로소',
+            # '에어 싸인'=에워싸인) 확실한 이름(세 글자 이상, 어절 첫머리, 한자 읽기 괄호가 아님)일 때만 베낌(FAIL)
+            sure = [e for e in from_ex if _sure_name(e, out)]
+            issues.append(_issue("EXAMPLE_COPY" if sure else "EXAMPLE_ENTITY", note))
     return issues
+
+
+def _sure_name(e: str, text: str) -> bool:
+    """예시에서 온 고유명사가 오분석이 아니라 확실한 이름인가."""
+    if len(e) < 3:
+        return False
+    for m in re.finditer(re.escape(e), text):
+        before = text[m.start() - 1] if m.start() else " "
+        if before in "[(（［":  # 한자 뒤 읽기 괄호 '別離[별리]'
+            continue
+        if before.isspace() or not ("가" <= before <= "힣"):  # 어절 첫머리
+            return True
+    return False
 
 
 def _ending(toks):
@@ -719,8 +742,13 @@ def check_content(a: dict, b: dict, example_text: str = "", pos: dict[int, int] 
     def rewrites_source(k: int) -> bool:
         # 원문의 어떤 문장을 바꿔 쓴 것인가(내용어·두 글자 겹침 REWRITE_MIN 이상). 고유어로 많이 바꾸는 문체
         # (이광수: 경험하다→겪다, 타인→남)는 새 낱말이 예시에 있는 게 당연하므로 베낌으로 보지 않는다.
-        return any(_coverage(b["sent_lem"][k], a["sent_lem"][j]) >= REWRITE_MIN
-                   or _bigram_sim(a["sents"][j], b["sents"][k]) >= REWRITE_MIN for j in range(len(a["sents"])))
+        lem = b["sent_lem"][k]
+        for j in range(len(a["sents"])):
+            shared = sum(1 for x in lem if _present(x, a["sent_lem"][j]))
+            if (_coverage(lem, a["sent_lem"][j]) >= REWRITE_MIN and shared >= 3) \
+                    or _bigram_sim(a["sents"][j], b["sents"][k]) >= REWRITE_MIN:
+                return True  # 짧은 예시 문장이 낱말 두어 개 겹친다고 바꿔 쓴 것으로 보지 않게 '겹친 낱말 3개 이상'
+        return False
 
     for k in add:  # 예시 베낌이 먼저: 원문 어느 문장도 바꿔 쓴 게 아닌데 내용이 예시에서 왔으면 베낌
         new = sorted(l for l in b["sent_lem"][k] if not _present(l, pa))
@@ -800,6 +828,10 @@ def verify(source: str, output: str, examples=None, check_format: bool = True) -
     issues = check_meta(output, source)
     if issues and issues[0]["type"] == "EMPTY_OUTPUT":
         return {"verdict": "FAIL", "issues": issues, "stats": {}, "format": None}
+    ratio = len(output.strip()) / max(1, len(source.strip()))
+    if len(source.strip()) >= TRUNC_MIN_SOURCE and ratio < TRUNC_RATIO:
+        # 실제 변환 240개의 길이 비는 0.99~1.75. 0.7 미만은 잘린 출력(재번역이 마지막 문단만 돌려준 경우 등)
+        issues.append(_issue("TRUNCATED", f"변환문 길이가 원문의 {ratio:.0%}뿐 (하한 {TRUNC_RATIO:.0%})"))
     ex = _example_text(examples)
     a, b = _analyze(source), _analyze(output)
     issues += check_numbers(source, output)
@@ -835,6 +867,8 @@ FIX_HINTS = {
     "EXAMPLE_COPY": "이 부분은 원문에 없는 내용입니다(참고 예시에서 온 것). 지우거나 원문의 해당 내용으로 바꾸세요.",
     "META_TEXT": "설명·머리말·원문 표시는 지우고 다시 쓴 글만 남기세요.",
     "EMPTY_OUTPUT": "다시 쓴 글 전체를 출력하세요.",
+    "TRUNCATED": "글 일부만 출력됐습니다. 원문 전체(모든 문단)를 빠짐없이 다시 쓰세요.",
+    "LOW_RECALL": "원문 내용이 많이 빠졌습니다. 원문 전체(모든 문단)를 빠짐없이 다시 쓰세요.",
 }
 
 _PREAMBLE_LINE = re.compile(
@@ -871,7 +905,12 @@ def fix_instructions(result: dict) -> str:
         line = f"- [{i['label_ko']}] {i['note']}"
         if i.get("evidence"):
             line += f' / 해당 부분: "{i["evidence"]}"'
-        out.append(line + f" → {FIX_HINTS.get(i['type'], '원문과 뜻이 같게 고치세요.')}")
+        hint = FIX_HINTS.get(i["type"], "원문과 뜻이 같게 고치세요.")
+        if i["type"] == "EXAMPLE_COPY" and "같은 구절" in i["note"]:
+            # 맺음말 같은 구절은 '지우거나 바꾸라'로는 안 지워지는 일이 있어(회억해 보는 것입니다) 낱말을 바꾸라고 분명히 함
+            hint = ("따옴표 안 구절은 참고 예시의 문장을 그대로 옮긴 것입니다. 이 구절의 낱말을 그대로 쓰지 말고, "
+                    "그 문장은 원문의 해당 문장 뜻대로 다른 말로 끝맺으세요(한자를 덧붙여도 같은 구절입니다).")
+        out.append(line + f" → {hint}")
     return "\n".join(out)
 
 

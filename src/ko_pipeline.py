@@ -93,7 +93,7 @@ def convert_checked(text: str, user: str, mode: str = "R", *, max_retries: int =
             note = "가짜 결과 모드라 재번역을 건너뜀"
             break
         retries += 1
-        if "EMPTY_OUTPUT" in types:  # ② 같은 프롬프트로 다시
+        if types & {"EMPTY_OUTPUT", "TRUNCATED", "LOW_RECALL"}:  # ② 비었거나 잘렸거나 크게 빠짐 → 같은 프롬프트로 다시
             how, prompt = "같은 프롬프트로 다시 생성", r["prompt"]
         else:  # ③ 지적 부분만 최소 수정
             how, prompt = "지적 부분만 고쳐 다시 생성", fix_prompt(text, cur["output"], cur["verify"])

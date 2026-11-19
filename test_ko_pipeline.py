@@ -247,6 +247,42 @@ def test_sino_numerals_in_hangul_match_digits():
     assert any(i["type"] == "NUMBER_MISMATCH" for i in ko_verify.check_numbers("100년이 넘었다.", "이백 년이 넘었다."))
 
 
+def test_truncated_retry_is_not_chosen():
+    """재번역이 마지막 문단만 돌려주면(잘림) 그 시도는 FAIL이라 고르지 않고 앞 글을 남긴다 (11-19 파트너 사례)."""
+    bad = OK + " " + COPIED
+    cut = "그렇지만 협업이 어려워질 수 있다는 걱정도 있다."
+    r, fake = run(bad, cut)
+    c = r["check"]
+    summ = c["attempts"][1]["summary"]
+    assert c["attempts"][1]["verdict"] == "FAIL" and ("글이 잘림" in summ or "전체 내용 이탈" in summ)
+    assert c["best_attempt"] == 1 and r["converted"] == bad
+
+
+def test_length_ratio_marks_truncation():
+    src = " ".join([SRC] * 3)  # 200자 이상일 때만 길이 비를 본다
+    assert "TRUNCATED" in {i["type"] for i in ko_verify.verify(src, OK)["issues"]}
+    assert "TRUNCATED" not in {i["type"] for i in ko_verify.verify(src, " ".join([OK] * 3))["issues"]}
+
+
+def test_truncated_first_output_regenerates_same_prompt():
+    cut = "원격 근무는 최근 3년 동안 부쩍 늘었다."
+    r, fake = run(cut, OK)
+    assert r["check"]["first_verdict"] == "FAIL" and r["check"]["status"] == "PASS"
+    assert fake.prompts[1] == fake.prompts[0]  # 잘린 글은 고칠 곳 지시가 아니라 처음부터 다시
+
+
+def test_example_entity_misparse_is_review_not_fail():
+    """Kiwi가 옛 어미·한자 읽기를 고유명사로 잘못 붙인 것('이로소이다'의 '로소', '別離[별리]')은 베낌 FAIL이 아님.
+    예시에 있던 세 글자 이상 이름을 어절 첫머리에 그대로 쓰면 베낌(FAIL)."""
+    src = "우리 생활에는 여러 가지 문제가 있다. 이 문제는 앞으로 더 깊이 살펴볼 만한 주제다."
+    ex = [{"id": "x", "text": "이 일은 깊이 검토할 대상이로소이다. 그날의 別離[별리]는 슬펐다. 정지용은 바다를 노래했다."}]
+    for out in ("우리 생활에는 여러 가지 문제가 있도다. 이 문제는 앞으로 더 깊이 살펴볼 대상이로소이다.",
+                "우리 생활에는 여러 가지 別離[별리]의 문제가 있다. 이 문제는 앞으로 더 깊이 살펴볼 만한 주제다."):
+        assert "EXAMPLE_COPY" not in {i["type"] for i in ko_verify.verify(src, out, ex, check_format=False)["issues"]}, out
+    copied = "우리 생활에는 정지용이 말한 여러 가지 문제가 있다. 이 문제는 앞으로 더 깊이 살펴볼 만한 주제다."
+    assert "EXAMPLE_COPY" in {i["type"] for i in ko_verify.verify(src, copied, ex, check_format=False)["issues"]}
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     failed = 0
