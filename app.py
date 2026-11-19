@@ -5,37 +5,67 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Lingua Me",
+    page_icon="assets/logo.png",
     layout="wide",
 )
+st.logo("assets/logo.png", size="large")
 
 
-# 글씨 크기·진하기 (부스 화면에서 잘 보이게)
+# 글씨 크기·진하기 (부스 화면에서 잘 보이게). 글자색은 테마(라이트/다크)에 맡김 — 검정을 박아 두면 다크 모드에서 안 보인다
 STYLE = """
 <style>
 html, body, [data-testid="stAppViewContainer"] { font-size: 17px; }
-[data-testid="stMainBlockContainer"] { max-width: 100%; padding-left: 3rem; padding-right: 3rem; }
+[data-testid="stMainBlockContainer"] { max-width: 100%; padding-left: 2.25rem; padding-right: 2.25rem; padding-top: 2.5rem; }
+/* 한 화면 맞춤: 제목~변환 버튼, 변환 결과(제목+두 칸+설명)가 각각 화면 높이를 채우도록 칸 높이를 화면 높이에 맞춤 */
+.st-key-ko_input textarea { height: max(260px, calc(100vh - 400px)) !important; }
+.st-key-ko_results { scroll-margin-top: 3.5rem; }
+.st-key-ko_results textarea { height: max(320px, calc(100vh - 255px)) !important; }
+/* 뜻 확인 + 펼침 칸 묶음, 살펴볼 문장 항목: 테두리 없이 옅은 바탕 상자 */
+.st-key-ko_details { background: color-mix(in srgb, currentColor 4%, transparent); border-radius: 1rem; padding: 1.25rem 1.5rem; }
+[class*="st-key-ko_rv_"] { background: color-mix(in srgb, currentColor 5%, transparent); border-radius: 0.75rem; padding: 0.9rem 1.1rem; }
+/* 살펴볼 문장 카드의 '원문'/'변환문' 표시: 테두리 알약(문제 유형 배지는 채운 회색이라 구분됨) */
+.rv-tag { display: inline-block; min-width: 4.6em; box-sizing: border-box; margin-right: 0.5em; padding: 0 0.6em; border-radius: 999px; text-align: center;
+  font-size: 0.8em; font-weight: 700; line-height: 1.7; color: color-mix(in srgb, currentColor 75%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent); background: color-mix(in srgb, currentColor 6%, transparent); }
 h1 { font-size: 3.2rem !important; }
-h3 { font-size: 1.8rem !important; color: #111 !important; }
-[data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li { font-size: 1.2rem; color: #111; line-height: 1.7; }
-[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { font-size: 1.15rem !important; color: #333 !important; opacity: 1 !important; }
-textarea { font-size: 1.35rem !important; line-height: 1.8 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; }
-[data-testid="stWidgetLabel"] p { font-size: 1.3rem !important; font-weight: 700; color: #111; }
-[data-testid="stSidebar"] { width: 320px !important; min-width: 320px !important; }
+h3 { font-size: 1.8rem !important; }
+[data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li { font-size: 1.2rem; line-height: 1.7; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { font-size: 1.15rem !important; opacity: 1 !important; }
+textarea { font-size: 1.15rem !important; line-height: 1.8 !important; padding: 1rem 1.25rem !important; }
+[data-testid="stWidgetLabel"] p { font-size: 1.3rem !important; font-weight: 700; }
+[data-testid="stSidebar"] { width: 250px !important; min-width: 250px !important; }
 [data-testid="stSidebarUserContent"] { padding-top: 0 !important; }
-[data-testid="stSidebarHeader"] { height: 2.2rem !important; min-height: 0 !important; }
-[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p { font-size: 1.45rem !important; font-weight: 800 !important; color: #000 !important; margin-bottom: 0.3rem; }
-[data-testid="stSidebar"] [role="radiogroup"] { gap: 0.15rem; }
-[data-testid="stSidebar"] [role="radiogroup"] label { padding: 0.2rem 0; align-items: center; }
-[data-testid="stSidebar"] [role="radiogroup"] label p { font-size: 1.15rem !important; color: #000; font-weight: 600; }
-[data-testid="stRadioOption"] > div > div:first-child { transform: scale(1.2); margin-right: 0.4rem; }
-[data-testid="stExpander"] summary p { font-size: 1.2rem !important; color: #111; font-weight: 600; }
-[data-testid="stMetricLabel"] p { font-size: 1.15rem !important; color: #222 !important; }
-[data-testid="stMetricValue"] { font-size: 2.6rem !important; }
+[data-testid="stSidebarHeader"] { height: auto !important; min-height: 0 !important; padding-top: 1.75rem !important; padding-bottom: 0.75rem !important; }
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p { font-size: 1.45rem !important; font-weight: 800 !important; margin-bottom: 0.3rem; }
+/* 사이드바 문체 선택: 제목 + 상자 하나 안에 이름을 한 줄씩(선택은 메인 색으로 채움). 회색 톤은 currentColor에서 섞어 라이트/다크 둘 다 맞게 */
+[class*="st-key-pgtitle_"] p { font-size: 1.15rem !important; font-weight: 800; margin-bottom: 0.35rem; }
+[class*="st-key-pgtitle_"]:not(.st-key-pgtitle_0) { margin-top: 1rem; }
+.st-key-persona_picker [role="radiogroup"] { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 0.8rem;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent); background: color-mix(in srgb, currentColor 4%, transparent); }
+.st-key-persona_picker button[data-variant="segmented_control"] { width: 100%; min-height: 2.1rem; padding: 0 0.9rem !important;
+  justify-content: flex-start; border: none !important;
+  border-radius: 0.6rem !important; background: transparent !important; box-shadow: none !important; }
+.st-key-persona_picker button[data-variant="segmented_control"] p { font-size: 1rem !important; font-weight: 700;
+  color: color-mix(in srgb, currentColor 60%, transparent); }
+.st-key-persona_picker button[data-variant="segmented_control"]:hover { background: color-mix(in srgb, currentColor 7%, transparent) !important; }
+.st-key-persona_picker button[aria-checked="true"], .st-key-persona_picker button[aria-checked="true"]:hover { background: #980120 !important; }
+.st-key-persona_picker button[aria-checked="true"] p { color: #fff !important; }
+[data-testid="stExpander"] summary p { font-size: 1.1rem !important; font-weight: 600; }
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] p, [data-testid="stExpander"] [data-testid="stMarkdownContainer"] li { font-size: 1.05rem; }
+.st-key-ko_review [data-testid="stMarkdownContainer"] p { font-size: 1rem; }
+.st-key-ko_review [data-testid="stCaptionContainer"] p { font-size: 0.95rem !important; }
+[data-testid="stMetricLabel"] p { font-size: 1.15rem !important; }
+[data-testid="stMetricValue"], [data-testid="stMetricValue"] * { font-size: 2.2rem !important; font-weight: 700; }
+[data-testid="stMetricDelta"] p { font-size: 0.95rem !important; }
 [data-testid="stAlert"] p { font-size: 1.3rem !important; font-weight: 600; }
+.st-key-ko_check p { font-size: 1.05rem !important; }
 button[kind="primary"] { min-height: 3.6rem; }
 button[kind="primary"] p { font-size: 1.6rem !important; font-weight: 800; color: #fff !important; }
-mark { background: #fff3bf; padding: 0 2px; }
-textarea:disabled, [data-baseweb="textarea"]:has(textarea:disabled) { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; font-weight: 500 !important; cursor: text !important; }
+mark { background: #fff3bf; color: #000; padding: 0 2px; }
+textarea:disabled, [data-baseweb="textarea"]:has(textarea:disabled) { opacity: 1 !important; font-weight: 500 !important; cursor: text !important; }
+[data-testid="stTextArea"] { color: inherit; }
+[data-testid="stTextArea"] textarea:disabled { color: inherit !important; -webkit-text-fill-color: currentColor !important; }
+[data-testid="stTextArea"] [data-testid="stWidgetLabel"], [data-testid="stTextArea"] [data-testid="stWidgetLabel"] * { color: inherit !important; opacity: 1 !important; }
 [data-baseweb="textarea"], [data-baseweb="base-input"] { opacity: 1 !important; }
 </style>
 """
@@ -97,21 +127,21 @@ def run_ko_style(source, user, mode, use_dummy):
 def render_ko_metrics(r, user, persona):
     """한→한 결과의 AI 획일화·스타일 지표 (src/ko_metrics, API 없음). 한→영 대시보드 지표의 한국어판(D-100)."""
     from src import ko_metrics
-    st.markdown("**AI 말투 지표**")
+    st.subheader("AI 말투 지표", anchor=False)
     try:
         rows = ko_metrics.table(r["source"], r["converted"], user, persona)
     except BaseException as e:
         st.warning(f"지표 계산 오류 ({type(e).__name__}: {e})")
         return
     a, b = rows[0], rows[1]
-    k1, k2, k3 = st.columns(3)
+    k1, k2, k3 = st.columns(3, gap="medium")
     k1.metric("AI 표현 (100어절당)", f"{b['AI 표현 (100어절당)']:.1f}",
-              f"{b['AI 표현 (100어절당)'] - a['AI 표현 (100어절당)']:+.1f} (원문 대비)", delta_color="inverse")
+              f"{b['AI 표현 (100어절당)'] - a['AI 표현 (100어절당)']:+.1f} (원문 대비)", delta_color="inverse", border=True)
     k2.metric("어휘 다양도 (MTLD)", f"{b['어휘 다양도 (MTLD)']:.1f}",
-              f"{b['어휘 다양도 (MTLD)'] - a['어휘 다양도 (MTLD)']:+.1f} (원문 대비)")
+              f"{b['어휘 다양도 (MTLD)'] - a['어휘 다양도 (MTLD)']:+.1f} (원문 대비)", border=True)
     if b["문장 길이 일치도"] is not None:
         k3.metric(f"문장 길이 일치도 ({persona})", f"{b['문장 길이 일치도']:.2f}",
-                  f"{b['문장 길이 일치도'] - a['문장 길이 일치도']:+.2f} (원문 대비)")
+                  f"{b['문장 길이 일치도'] - a['문장 길이 일치도']:+.2f} (원문 대비)", border=True)
     st.dataframe(pd.DataFrame(rows).set_index("구분").round(3), width="stretch")
     fmt = lambda c: ", ".join(f"{k}×{v}" for k, v in c.most_common()) or "없음"
     st.caption(f"AI 표현 · 원문: {fmt(ko_metrics.find_markers(r['source']))} / 변환문: {fmt(ko_metrics.find_markers(r['converted']))}")
@@ -126,10 +156,10 @@ def render_ko_metrics(r, user, persona):
             st.caption("'-습니다'체는 별도 집계. 소표본 기준이라 경향만 참고.")
 
 
-STATUS_KO = {  # 화면에 보이는 뜻 확인 결과 문구
-    "PASS": "통과",
-    "REVIEW": "대체로 같음 (표현이 많이 바뀐 문장 있음)",
-    "FAIL": "실패 (재변환 후에도 오류 남음)",
+STATUS_KO = {  # 뜻 확인 결과: 작은 배지 + 한 줄 안내. REVIEW는 오탐이 대부분이라 '혹시 모르니 한 번 보기' 정도로만 안내
+    "PASS": (":green-badge[:material/check: 뜻 확인]", "원문의 뜻이 잘 전해졌어요."),
+    "REVIEW": (":yellow-badge[:material/visibility: 뜻 확인]", "뜻은 대체로 잘 전해졌어요. 혹시 모르니 표시된 문장만 한 번 살펴보세요."),
+    "FAIL": (":red-badge[:material/error: 뜻 확인]", "다시 변환해도 뜻이 달라진 부분이 남아 있어요. 아래 항목을 확인해 주세요."),
 }
 
 
@@ -139,8 +169,9 @@ def render_ko_check(r):
     from src import ko_pipeline, ko_verify
     v, chk = r["verify"], r.get("check") or {}
     status = chk.get("status", v["verdict"])
-    (st.success if status == "PASS" else st.error if status == "FAIL" else st.info)(
-        f"뜻 확인: {STATUS_KO.get(status, status)}")
+    badge, text = STATUS_KO.get(status, (f":gray-badge[뜻 확인: {status}]", ""))
+    with st.container(key="ko_check"):
+        st.markdown(f"{badge}&nbsp; {text}")
     if len(chk.get("attempts", [])) > 1:
         st.caption("재변환: " + ko_pipeline.history_line(chk))
         with st.expander("첫 변환문"):
@@ -150,19 +181,27 @@ def render_ko_check(r):
         st.caption(chk["note"])
     if status != "REVIEW" or not chk.get("review"):
         return
-    exp = st.expander(f"참고: 표현이 많이 바뀐 문장 {len(chk['review'])}개")  # 기본은 접어 둠
+    exp = st.expander(f"살펴볼 문장 {len(chk['review'])}개", key="ko_review")  # 기본은 접어 둠
     marks = [p["sentence"] for p in chk["review"] if p["where"] == "output"]
     if marks:
         body = "".join(f"<mark>{html.escape(t)}</mark>" if m else html.escape(t)
                        for t, m in ko_verify.mark_segments(r["converted"], marks))
         body = body.replace("\n", "<br>")  # 빈 줄이 있으면 HTML 블록이 끊겨 빈 상자로 보이는 문제 방지
         exp.markdown(f"<div style='line-height:1.7'>{body}</div>", unsafe_allow_html=True)
-    for p in chk["review"]:
-        where = {"output": "변환문", "source": "원문"}.get(p["where"], "")
-        line = f"- {', '.join(p['labels'])}"
-        if p["sentence"]:
-            line += f" · {where}: “{p['sentence']}”"
-        exp.markdown(line + f"  \n  {' / '.join(dict.fromkeys(p['notes']))}")
+        exp.space("small")
+    missing = "(짝이 되는 문장을 찾지 못했어요)"
+    for k, p in enumerate(chk["review"]):
+        box = exp.container(key=f"ko_rv_{k}")
+        lines = [" ".join(f":gray-badge[{l}]" for l in p["labels"])]
+        if p["sentence"]:  # 지적된 문장의 반대쪽(원문↔변환문) 짝도 같이 보여 준다
+            if p["where"] == "output":
+                src_s, out_s = ko_verify.counterpart(p["sentence"], r["source"]), p["sentence"]
+            else:
+                src_s, out_s = p["sentence"], ko_verify.counterpart(p["sentence"], r["converted"])
+            tag = lambda t: f"<span class='rv-tag'>{t}</span>"
+            lines += [f"{tag('원문')}{html.escape(src_s or missing)}", f"{tag('변환문')}{html.escape(out_s or missing)}"]
+        box.markdown("  \n".join(lines), unsafe_allow_html=True)
+        box.caption(" / ".join(dict.fromkeys(p["notes"])))
 
 
 def render_ko_style(persona, use_dummy, mode):
@@ -172,9 +211,10 @@ def render_ko_style(persona, use_dummy, mode):
         st.warning(f"LINGUA_CORPUS_SPLIT={config.CORPUS_SPLIT} 설정됨. 작가 글 일부만 검색 중. "
                    "Remove-Item Env:LINGUA_CORPUS_SPLIT 실행 후 재시작")
 
-    source = st.text_area("원문", value=DUMMY_KO_SOURCE, height=300)
+    source = st.text_area("원문", value=DUMMY_KO_SOURCE, height=300, key="ko_input")
     n_chars = len(source.strip())
-    st.caption(f"{n_chars:,}자")
+    st.caption(f"{n_chars:,}자&nbsp;&nbsp;<span style='font-size:0.85em; opacity:0.55'>"
+               "문체 옵션을 선택하고 원문을 작성한 뒤 <b>변환</b> 버튼을 눌러 주세요.</span>", unsafe_allow_html=True)
     if 0 < n_chars < 300:  # 문체 판정 점수(1,000자 기준)는 화면에서 뺐으므로 아주 짧을 때만 안내
         st.info("글이 짧으면 문체 차이가 잘 안 드러남 (두세 문단 이상 권장)")
 
@@ -186,63 +226,67 @@ def render_ko_style(persona, use_dummy, mode):
                 r = run_ko_style(source, user, mode, use_dummy)
             r.update(persona=persona, source=source, dummy=use_dummy)
             st.session_state["ko_result"] = r
+            st.session_state["ko_scroll"] = True  # 결과가 그려진 뒤 결과 칸으로 한 번 스크롤
         except BaseException as e:  # API 키 없음(sys.exit) 포함
             st.error("API 키 없음 (.env의 GOOGLE_API_KEY 확인)"
                      if isinstance(e, SystemExit) else f"{type(e).__name__}: {e}")
 
     r = st.session_state.get("ko_result")
     if not r:
-        st.info("원문 입력 후 변환 버튼")
         return
 
-    st.divider()
-    left, right = st.columns(2)
-    with left:
-        st.subheader("원문")
-        st.text_area("원문", r["source"], height=420, disabled=True, key="out_source", label_visibility="collapsed")
-    with right:
-        st.subheader(f"{r['persona']} 문체")
-        st.text_area("변환문", r["converted"], height=420, disabled=True, label_visibility="collapsed")
-        st.caption(("가짜 결과 · " if r["dummy"] else "") + f"{KO_MODES[r['mode']]} · {r['seconds']:.1f}초")
+    st.space("large")
+    with st.container(key="ko_results"):  # 변환 후 스크롤 위치. 칸 높이는 CSS에서 화면 높이에 맞춤
+        st.subheader("변환 결과", anchor=False)
+        left, right = st.columns(2, gap="medium")
+        with left:
+            st.text_area("원문", r["source"], height=460, disabled=True, key="out_source")
+        with right:
+            st.text_area(f"{r['persona']} 문체", r["converted"], height=460, disabled=True)
+            st.caption(("가짜 결과 · " if r["dummy"] else "") + f"{KO_MODES[r['mode']]} · {r['seconds']:.1f}초")
 
-    v = r.get("verify")
-    if v:
-        render_ko_check(r)
-        if v["issues"]:
-            with st.expander(f"점검 항목 {len(v['issues'])}개"):
-                for i in v["issues"]:
-                    st.markdown(f"- [{i['severity']}] **{i['label_ko']}** · {i['note']}" + (f" (`{i['evidence']}`)" if i.get("evidence") else ""))
-            if v["verdict"] == "REVIEW":
-                st.caption("표현이 많이 바뀐 문장은 참고용 표시 (자동 수정 안 함)")
+    with st.container(key="ko_details"):  # 뜻 확인 + 펼침 칸들을 한 묶음으로(테두리 없는 상자)
+        v = r.get("verify")
+        if v:
+            render_ko_check(r)
+            if v["issues"]:
+                with st.expander(f"점검 항목 {len(v['issues'])}개"):
+                    for i in v["issues"]:
+                        st.markdown(f"- [{i['severity']}] **{i['label_ko']}** · {i['note']}" + (f" (`{i['evidence']}`)" if i.get("evidence") else ""))
 
-    if "P" in r["mode"]:  # 지금 데모는 R만 쓰므로 표시되지 않음(이전 방식 호환용)
-        st.markdown("**적용된 문체 지시**")
-        for line in r["lines"] or ["(지시 없음)"]:
-            st.markdown(f"- {line}")
-    with st.expander("공통 규칙"):
-        for i, rule in enumerate(ko_style.RULE_SETS[ko_style.RULES_VERSION], 1):
-            st.markdown(f"{i}. {rule}")
+        if "P" in r["mode"]:  # 지금 데모는 R만 쓰므로 표시되지 않음(이전 방식 호환용)
+            st.markdown("**적용된 문체 지시**")
+            for line in r["lines"] or ["(지시 없음)"]:
+                st.markdown(f"- {line}")
+        with st.expander("공통 규칙"):
+            for i, rule in enumerate(ko_style.RULE_SETS[ko_style.RULES_VERSION], 1):
+                st.markdown(f"{i}. {rule}")
 
-    if "R" in r["mode"]:
-        with st.expander(f"RAG 검색 결과: {r['persona']} 글 {len(r['examples'])}편 (유사도순)"):
-            for i, e in enumerate(r["examples"], 1):
-                st.markdown(f"**{i}.** {e.get('topic') or e.get('type') or ''} · 유사도 {e['score']:.2f}")
-                st.write(e["text"])
+        if "R" in r["mode"]:
+            with st.expander(f"RAG 검색 결과: {r['persona']} 글 {len(r['examples'])}편 (유사도순)"):
+                for i, e in enumerate(r["examples"], 1):
+                    st.markdown(f"**{i}.** {e.get('topic') or e.get('type') or ''} · 유사도 {e['score']:.2f}")
+                    st.write(e["text"])
 
+    st.space("large")
     try:  # 지표 계산이 실패해도 위 화면이 사라지지 않게
         render_ko_metrics(r, user, persona)
     except BaseException as e:
         st.warning(f"지표 표시 오류 ({type(e).__name__}: {e})")
 
+    if st.session_state.pop("ko_scroll", False):  # 시각을 넣어 변환할 때마다 새 요소로 그려지게(같은 내용이면 스크립트가 다시 안 돎)
+        st.html(f"<script>/* {time.time()} */ setTimeout(() => document.querySelector('.st-key-ko_results')"
+                "?.scrollIntoView({behavior: 'smooth', block: 'start'}), 250);</script>", unsafe_allow_javascript=True)
+
 
 # ==================================================
 # 화면
 # ==================================================
-# 사이드바: 작가 / 팀원 / 블로그를 묶음별로 나눠 보여 주고, 전체에서 한 명만 고르게 한다
+# 사이드바: 작가 / 팀원 / 블로그를 묶음별 카드로 나눠 보여 주고, 전체에서 한 명만 고르게 한다
 PERSONA_GROUPS = [
-    ("작가 선택", ["이광수", "이상", "이육사"]),
-    ("팀원 선택", ["나경", "수영", "강희"]),
-    ("기타", ["스머프 할아버지"]),
+    ("작가 문체 선택", ["이광수", "이상", "이육사"]),
+    ("블로그 문체 선택", ["스머프 할아버지"]),
+    ("개인 문체 선택", ["나경", "수영", "강희"]),
 ]
 
 
@@ -257,20 +301,19 @@ def pick_persona():
     if "group_0" not in st.session_state:  # 처음 켰을 때: 이광수만 선택
         for i, (_, names) in enumerate(PERSONA_GROUPS):
             st.session_state[f"group_{i}"] = names[0] if i == 0 else None
-    for i, (label, names) in enumerate(PERSONA_GROUPS):
-        if i == len(PERSONA_GROUPS) - 1:
-            st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
-        st.radio(label, names, key=f"group_{i}", on_change=_only, args=(i,),
-                 label_visibility="collapsed" if label == "기타" else "visible")
-        if i == 0:
-            st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
+    with st.container(key="persona_picker"):
+        for i, (label, names) in enumerate(PERSONA_GROUPS):
+            with st.container(key=f"pgtitle_{i}"):
+                st.markdown(f"**{label}**")
+            st.segmented_control(label, names, key=f"group_{i}", on_change=_only, args=(i,),
+                                 required=True, width="stretch", label_visibility="collapsed")
     return next(st.session_state[f"group_{i}"] for i in range(len(PERSONA_GROUPS))
                 if st.session_state.get(f"group_{i}"))
 
 
 def main():
     st.markdown(STYLE, unsafe_allow_html=True)
-    st.title("Lingua Me")
+    st.title("Lingua Me", anchor=False)
     st.caption("개인화 번역 비교 및 AI 획일화 정량 비교 지표")
     with st.sidebar:
         persona = pick_persona()

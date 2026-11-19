@@ -929,6 +929,12 @@ def review_points(result: dict) -> list[dict]:
     return sorted(pts.values(), key=lambda p: (not p["sentence"], p["where"] != "output"))
 
 
+def counterpart(sentence: str, other_text: str, min_sim: float = 0.3) -> str:
+    """other_text에서 sentence와 글자 2-gram이 가장 많이 겹치는 문장. 화면에서 원문↔변환문 짝을 보여 주는 용도. 못 찾으면 ""."""
+    best = max(_analyze(other_text)["sents"], key=lambda s: _bigram_sim(sentence, s), default="")
+    return best if best and _bigram_sim(sentence, best) >= min_sim else ""
+
+
 def mark_segments(text: str, sentences: list[str]) -> list[tuple[str, bool]]:
     """text를 [(조각, 표시 여부)]로 나눈다. sentences에 든 문장(그대로 나오는 것)만 표시. 화면 강조용."""
     spans = []
