@@ -17,9 +17,47 @@ STYLE = """
 html, body, [data-testid="stAppViewContainer"] { font-size: 17px; }
 [data-testid="stMainBlockContainer"] { max-width: 100%; padding-left: 2.25rem; padding-right: 2.25rem; padding-top: 2.5rem; }
 /* 한 화면 맞춤: 제목~변환 버튼, 변환 결과(제목+두 칸+설명)가 각각 화면 높이를 채우도록 칸 높이를 화면 높이에 맞춤 */
-.st-key-ko_input textarea { height: max(260px, calc(100vh - 400px)) !important; }
-.st-key-ko_results { scroll-margin-top: 3.5rem; }
-.st-key-ko_results textarea { height: max(320px, calc(100vh - 255px)) !important; }
+.st-key-ko_input textarea { height: max(260px, calc(100vh - 420px)) !important; }
+.st-key-ko_results, .st-key-ko_pending, .st-key-ko_details { scroll-margin-top: 3.5rem; }
+.st-key-ko_results textarea, .st-key-ko_pending textarea, .ko-writing { height: max(320px, calc(100vh - 290px)) !important; }
+/* 물음표 툴팁: 본문용 큰 글씨(1.2rem)가 툴팁에도 걸려서 따로 줄임 */
+[data-testid="stTooltipContent"] p, [data-testid="stTooltipContent"] li { font-size: 0.9rem !important; line-height: 1.6 !important; margin-bottom: 0.5rem; }
+[data-testid="stTooltipContent"] p:last-child { margin-bottom: 0; }
+[data-testid="stTooltipContent"] [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
+/* 오른쪽 위 실행 중 아이콘(달리는 사람·Stop) 숨김: 로딩은 결과 자리의 글줄 애니메이션으로 보여 줌 */
+[data-testid="stStatusWidget"] { display: none !important; }
+/* 결과 칸 이름 줄 + 복사 버튼(칸 위에 마우스를 올리면 나타남) */
+[class*="st-key-ko_lbl_"] p { font-size: 1.3rem !important; font-weight: 700; }
+[class*="st-key-ko_lbl_"] { margin-bottom: -0.6rem; }
+.ko-copy { width: 2rem; height: 2rem; padding: 0; border-radius: 0.5rem; cursor: pointer; color: inherit;
+  background: transparent; border: none; opacity: 0; transition: opacity 0.15s, background 0.15s;
+  display: flex; align-items: center; justify-content: center; }
+.ko-copy::before { content: ""; width: 1.15rem; height: 1.15rem; background: currentColor; opacity: 0.7;
+  -webkit-mask: var(--ko-icon) center / contain no-repeat; mask: var(--ko-icon) center / contain no-repeat;
+  --ko-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='8' y='2' width='8' height='4' rx='1'/%3E%3Cpath d='M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2'/%3E%3C/svg%3E"); }
+.ko-copy.done::before { opacity: 1; background: #2E7D4F;
+  --ko-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E"); }
+.st-key-ko_results [data-testid="stColumn"]:hover .ko-copy, .ko-copy:focus-visible, .ko-copy.done { opacity: 1; }
+.ko-copy:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+/* 지표 표의 마우스 메뉴(다운로드·검색 등)가 위 카드를 가리지 않게 표 아래쪽에 띄움 */
+.st-key-ko_metric_table [data-testid="stElementToolbar"] { top: auto !important; bottom: -2.6rem !important; }
+.st-key-ko_metric_table { margin-bottom: 2rem; }
+/* 결과 아래 작은 화살표: 누르면 점검 묶음으로 스크롤 */
+.ko-next { display: flex; justify-content: center; margin-top: -0.6rem; }
+.ko-next button { border: none; background: none; padding: 0.3rem 0.8rem 0.6rem; cursor: pointer; color: inherit; opacity: 0.45;
+  transition: opacity 0.15s, transform 0.15s; }
+.ko-next button::before { content: ""; display: block; width: 14px; height: 14px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }
+.ko-next button:hover { opacity: 0.9; transform: translateY(2px); }
+/* 변환 중 자리: 글줄 모양 막대가 차례로 반짝임(색은 글자색에서 섞어 라이트/다크 공용) */
+.ko-writing { box-sizing: border-box; padding: 1.5rem 1.4rem; border-radius: 0.5rem; overflow: hidden;
+  background: color-mix(in srgb, currentColor 5%, transparent); }
+.ko-line { height: 0.8rem; margin: 0 0 1.25rem; border-radius: 999px; background: color-mix(in srgb, currentColor 14%, transparent);
+  animation: ko-pulse 1.4s ease-in-out infinite; }
+.ko-gap { height: 1.25rem; }
+@keyframes ko-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+.st-key-ko_pending_label p { font-size: 1.3rem !important; font-weight: 700; }
+.st-key-ko_pending_label { margin-bottom: -13px; }
 /* 뜻 확인 + 펼침 칸 묶음, 살펴볼 문장 항목: 테두리 없이 옅은 바탕 상자 */
 .st-key-ko_details { background: color-mix(in srgb, currentColor 4%, transparent); border-radius: 1rem; padding: 1.25rem 1.5rem; }
 [class*="st-key-ko_rv_"] { background: color-mix(in srgb, currentColor 5%, transparent); border-radius: 0.75rem; padding: 0.9rem 1.1rem; }
@@ -85,11 +123,11 @@ from src.ko_style import DEMO_AUTHORS
 # 작가 3인(이광수·이상·이육사) + 팀원 3인 + 블로그(11/18 다시 추가)
 KO_PERSONAS = {**DEMO_AUTHORS, "나경": "nakyung", "강희": "ganghee", "수영": "suyoung", "스머프 할아버지": "blog"}
 DUMMY_KO_SOURCE = (  # 데모 기본 예시 글(AI가 쓴 듯한 평범한 글, 3문단)
-    "가을이 되면 많은 사람들이 책을 읽고 싶어진다. 선선한 바람과 맑은 하늘은 마음을 차분하게 만들어 주고, "
+    "가을이 되면 많은 사람들이 책을 읽고 싶어 한다. 선선한 바람과 맑은 하늘은 마음을 차분하게 만들어 주고, "
     "길어진 밤은 한 권의 책에 집중할 수 있는 시간을 준다. 이러한 이유로 가을은 예로부터 독서의 계절이라고 불려 왔다.\n\n"
     "그러나 오늘날 사람들은 바쁜 일상 속에서 책을 펼칠 여유를 찾기 어렵다. 휴대전화로 짧은 글과 영상을 보는 시간은 늘어났지만, "
-    "한 권의 책을 끝까지 읽는 경험은 점점 줄어들고 있다. 이는 단순히 읽는 양이 줄어든 것이 아니라, "
-    "하나의 생각을 오래 붙잡고 깊이 들여다보는 힘이 약해지고 있다는 것을 의미한다.\n\n"
+    "한 권의 책을 끝까지 읽는 경험은 점점 줄어들고 있다. 이는 단순히 읽는 양이 줄어들었다는 뜻이 아니라, "
+    "하나의 생각을 오래 붙잡고 깊이 들여다보는 힘이 약해지고 있다는 뜻이다.\n\n"
     "따라서 독서는 지식을 얻는 수단일 뿐만 아니라 자신을 돌아보는 중요한 시간이라고 할 수 있다. "
     "하루에 몇 쪽이라도 꾸준히 읽는 습관을 기른다면, 우리는 더 넓은 시각으로 세상을 바라볼 수 있을 것이다. "
     "올가을에는 오래 미뤄 두었던 책 한 권을 꺼내 천천히 읽어 보는 것은 어떨까.")
@@ -127,33 +165,43 @@ def run_ko_style(source, user, mode, use_dummy):
 def render_ko_metrics(r, user, persona):
     """한→한 결과의 AI 획일화·스타일 지표 (src/ko_metrics, API 없음). 한→영 대시보드 지표의 한국어판(D-100)."""
     from src import ko_metrics
-    st.subheader("AI 말투 지표", anchor=False)
+    st.space("medium")
+    st.subheader(f"{persona} 글과 비교 (참고)", anchor=False)
     try:
         rows = ko_metrics.table(r["source"], r["converted"], user, persona)
     except BaseException as e:
         st.warning(f"지표 계산 오류 ({type(e).__name__}: {e})")
         return
     a, b = rows[0], rows[1]
+    ref, bands = rows[2] if len(rows) > 2 else {}, ko_metrics.person_bands(user)
+    BAND_TXT = {"green": "보통 범위", "yellow": "범위 안", "red": "범위 밖", None: "기준 없음"}
+    raw = {"comma_ec": ko_metrics.comma_after_ec_rate(r["converted"]), "mattr": b["어휘 다양도 (MATTR)"], "sent_len": b["평균 문장 길이 (어절)"]}
+    col = {k: ko_metrics.band(raw[k], bands.get(k)) for k in raw}
     k1, k2, k3 = st.columns(3, gap="medium")
-    k1.metric("AI 표현 (100어절당)", f"{b['AI 표현 (100어절당)']:.1f}",
-              f"{b['AI 표현 (100어절당)'] - a['AI 표현 (100어절당)']:+.1f} (원문 대비)", delta_color="inverse", border=True)
-    k2.metric("어휘 다양도 (MTLD)", f"{b['어휘 다양도 (MTLD)']:.1f}",
-              f"{b['어휘 다양도 (MTLD)'] - a['어휘 다양도 (MTLD)']:+.1f} (원문 대비)", border=True)
+    if ref:  # 세 카드 모두 '목표 인물과의 거리', 색은 그 사람 실제 글들의 값 범위 기준(D-110)
+        k1.metric("연결어미 뒤 쉼표", f"{abs(b['연결어미 뒤 쉼표 비율'] - ref['연결어미 뒤 쉼표 비율']) * 100:.0f}%p",
+                  BAND_TXT[col["comma_ec"]],
+                  delta_color=col["comma_ec"] or "gray", delta_arrow="off", border=True,
+                  help=f"변환문 {b['연결어미 뒤 쉼표 비율']:.0%} · {persona} {ref['연결어미 뒤 쉼표 비율']:.0%} · 원문 {a['연결어미 뒤 쉼표 비율']:.0%}\n\n"
+                       "연결어미(-고, -며, -지만 등) 바로 뒤에  \n쉼표를 찍는 비율이 목표 인물 글과 얼마나 다른지.\n\n"
+                       "AI 글은 사람 글보다 이 비율이 높음 (KatFishNet, ACL 2025).")
+    if b["어휘 다양도 일치도"] is not None and a["어휘 다양도 일치도"] is not None:
+        k2.metric("어휘 다양도 일치도", f"{b['어휘 다양도 일치도']:.2f}",
+                  BAND_TXT[col["mattr"]],
+                  delta_color=col["mattr"] or "gray", delta_arrow="off", border=True,
+                  help=f"원문 {a['어휘 다양도 일치도']:.2f} → 변환문 {b['어휘 다양도 일치도']:.2f}\n\n"
+                       "같은 낱말을 다시 쓰는 정도(MATTR)가  \n목표 인물의 실제 글과 얼마나 비슷한지.\n\n"
+                       "1 = 그 사람 글의 중앙값, 0 = 그 사람 글에서 보기 드문 정도(이상치 경계)로 다름.\n\n"
+                       "AI 글은 사람 글보다 낱말을 덜 반복하는 편이라,  \n절대값이 아니라 목표 인물과의 차이로 봄.")
     if b["문장 길이 일치도"] is not None:
-        k3.metric(f"문장 길이 일치도 ({persona})", f"{b['문장 길이 일치도']:.2f}",
-                  f"{b['문장 길이 일치도'] - a['문장 길이 일치도']:+.2f} (원문 대비)", border=True)
-    st.dataframe(pd.DataFrame(rows).set_index("구분").round(3), width="stretch")
-    fmt = lambda c: ", ".join(f"{k}×{v}" for k, v in c.most_common()) or "없음"
-    st.caption(f"AI 표현 · 원문: {fmt(ko_metrics.find_markers(r['source']))} / 변환문: {fmt(ko_metrics.find_markers(r['converted']))}")
-    mk = ko_metrics.load_markers()
-    with st.expander("AI 표현 목록"):
-        if mk.get("missing"):
-            st.caption("data/ko_ai_markers.json 없음 (scripts/build_ko_ai_markers.py 실행)")
-        else:
-            st.caption(f"사람 글과 AI 재작성 글 {mk.get('n_pairs')}쌍 비교, AI 쪽에서 많이 나온 표현"
-                       + (" (검토 전)" if not mk.get("reviewed") else ""))
-            st.markdown(", ".join(m["label"] for m in mk["markers"] if m["kind"] == "ai_marker"))
-            st.caption("'-습니다'체는 별도 집계. 소표본 기준이라 경향만 참고.")
+        k3.metric("문장 길이 일치도", f"{b['문장 길이 일치도']:.2f}",
+                  BAND_TXT[col["sent_len"]],
+                  delta_color=col["sent_len"] or "gray", delta_arrow="off", border=True,
+                  help=f"원문 {a['문장 길이 일치도']:.2f} → 변환문 {b['문장 길이 일치도']:.2f}\n\n"
+                       "평균 문장 길이(어절 수)가  \n목표 인물의 실제 글과 얼마나 비슷한지.\n\n"
+                       "1 = 그 사람 글의 중앙값, 0 = 그 사람 글에서 보기 드문 정도(이상치 경계)로 다름.")
+    with st.container(key="ko_metric_table"):
+        st.dataframe(pd.DataFrame(rows).set_index("구분").round(3), width="stretch")
 
 
 STATUS_KO = {  # 뜻 확인 결과: 작은 배지 + 한 줄 안내. REVIEW는 오탐이 대부분이라 '혹시 모르니 한 번 보기' 정도로만 안내
@@ -204,6 +252,52 @@ def render_ko_check(r):
         box.caption(" / ".join(dict.fromkeys(p["notes"])))
 
 
+MANUAL_INPUT = "직접 입력"
+DEFAULT_DEMO = "에세이 · 독서의 계절"
+
+
+@st.cache_data(show_spinner=False)
+def load_demo_inputs():
+    """데모용 예시 원문 (data/demo/demo_inputs.json). {"장르 · 제목": 본문}"""
+    import json
+    from src import config
+    items = json.loads((config.DATA_DIR / "demo" / "demo_inputs.json").read_text(encoding="utf-8"))
+    return {f"{d['genre']} · {d['title']}": d["text"] for d in items}
+
+
+def _fill_demo(demos):
+    name = st.session_state["ko_demo"]
+    st.session_state["ko_input"] = "" if name == MANUAL_INPUT else DUMMY_KO_SOURCE if name == DEFAULT_DEMO else demos[name]
+
+
+def _source_edited():
+    st.session_state["ko_demo"] = MANUAL_INPUT  # 예시를 고친 순간부터는 직접 입력한 글
+
+
+_COPY_JS = """<script>
+if (!window.__koCopy) {  // 문서에 한 번만 걸어 두는 클릭 위임(결과가 다시 그려져도 동작)
+  window.__koCopy = true;
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('.ko-copy');
+    if (!b) return;
+    const ta = document.querySelectorAll('.st-key-ko_results textarea')[+b.dataset.idx];
+    navigator.clipboard.writeText(ta ? ta.value : '').then(() => {
+      b.classList.add('done'); b.setAttribute('aria-label', '복사됨');
+      setTimeout(() => { b.classList.remove('done'); b.setAttribute('aria-label', '복사'); }, 1500);
+    });
+  });
+}
+</script>"""
+
+
+def _label_with_copy(label, idx):
+    """결과 칸 위 줄: 칸 이름 + (마우스를 올리면 나타나는) 복사 버튼. idx = 결과 칸 순서(0 원문, 1 변환문)."""
+    with st.container(horizontal=True, vertical_alignment="center", key=f"ko_lbl_{idx}"):
+        st.markdown(f"**{label}**", width="stretch")
+        st.html(f"<button type='button' class='ko-copy' data-idx='{idx}' aria-label='복사' title='복사'></button>{_COPY_JS}",
+                width="content", unsafe_allow_javascript=True)
+
+
 def render_ko_style(persona, use_dummy, mode):
     from src import config, ko_style
     user = KO_PERSONAS[persona]
@@ -211,23 +305,49 @@ def render_ko_style(persona, use_dummy, mode):
         st.warning(f"LINGUA_CORPUS_SPLIT={config.CORPUS_SPLIT} 설정됨. 작가 글 일부만 검색 중. "
                    "Remove-Item Env:LINGUA_CORPUS_SPLIT 실행 후 재시작")
 
-    source = st.text_area("원문", value=DUMMY_KO_SOURCE, height=300, key="ko_input")
+    demos = load_demo_inputs()
+    st.session_state.setdefault("ko_input", "")
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.markdown("**원문**", width="stretch")
+        st.selectbox("예시 원문", [MANUAL_INPUT, DEFAULT_DEMO, *demos], key="ko_demo", on_change=_fill_demo, args=(demos,),
+                     label_visibility="collapsed", width=340)
+    source = st.text_area("원문", height=300, key="ko_input", label_visibility="collapsed", on_change=_source_edited,
+                          placeholder="바꿀 글을 붙여 넣거나, 오른쪽 위에서 예시 글을 골라 보세요.")
     n_chars = len(source.strip())
     st.caption(f"{n_chars:,}자&nbsp;&nbsp;<span style='font-size:0.85em; opacity:0.55'>"
                "문체 옵션을 선택하고 원문을 작성한 뒤 <b>변환</b> 버튼을 눌러 주세요.</span>", unsafe_allow_html=True)
     if 0 < n_chars < 300:  # 문체 판정 점수(1,000자 기준)는 화면에서 뺐으므로 아주 짧을 때만 안내
         st.info("글이 짧으면 문체 차이가 잘 안 드러남 (두세 문단 이상 권장)")
 
+    slot = None
     if st.button("변환", type="primary", width="stretch", disabled=n_chars == 0):
+        slot = st.empty()  # 변환하는 동안 결과 자리에 원문 + 반짝이는 빈 칸을 그려 두고, 끝나면 같은 자리에 결과를 갈아 끼운다
+        # (자리를 비웠다가 다시 그리면 페이지 길이가 줄었다 늘면서 스크롤이 위로 튐)
+        with slot.container():
+            st.space("large")
+            with st.container(key="ko_pending"):
+                st.subheader("변환 결과", anchor=False)
+                left, right = st.columns(2, gap="medium")
+                with left:
+                    st.text_area("원문", source, height=460, disabled=True, key="pending_source")
+                with right:
+                    with st.container(key="ko_pending_label"):
+                        st.markdown(f"**{persona} 문체**")
+                    widths = [96, 88, 92, 70, 0, 94, 85, 90, 78, 60, 0, 92, 87, 95, 66]  # 문단처럼 보이는 줄 길이(%), 0 = 빈 줄
+                    lines = "".join(f"<div class='ko-line' style='width:{w}%; animation-delay:{i * 0.08:.2f}s'></div>"
+                                    if w else "<div class='ko-gap'></div>" for i, w in enumerate(widths))
+                    st.html(f"<div class='ko-writing'>{lines}</div>")
+                    st.caption(f"{persona} 문체로 다시 쓰는 중…")
+            st.html(f"<script>/* {time.time()} */ setTimeout(() => document.querySelector('.st-key-ko_pending')"
+                    "?.scrollIntoView({behavior: 'smooth', block: 'start'}), 150);</script>", unsafe_allow_javascript=True)
         try:
             if not use_dummy:
                 warm_up_ko()
-            with st.spinner(f"{persona} 문체로 변환 중..."):
-                r = run_ko_style(source, user, mode, use_dummy)
+            r = run_ko_style(source, user, mode, use_dummy)
             r.update(persona=persona, source=source, dummy=use_dummy)
             st.session_state["ko_result"] = r
-            st.session_state["ko_scroll"] = True  # 결과가 그려진 뒤 결과 칸으로 한 번 스크롤
         except BaseException as e:  # API 키 없음(sys.exit) 포함
+            slot.empty()
             st.error("API 키 없음 (.env의 GOOGLE_API_KEY 확인)"
                      if isinstance(e, SystemExit) else f"{type(e).__name__}: {e}")
 
@@ -235,15 +355,22 @@ def render_ko_style(persona, use_dummy, mode):
     if not r:
         return
 
-    st.space("large")
-    with st.container(key="ko_results"):  # 변환 후 스크롤 위치. 칸 높이는 CSS에서 화면 높이에 맞춤
-        st.subheader("변환 결과", anchor=False)
-        left, right = st.columns(2, gap="medium")
-        with left:
-            st.text_area("원문", r["source"], height=460, disabled=True, key="out_source")
-        with right:
-            st.text_area(f"{r['persona']} 문체", r["converted"], height=460, disabled=True)
-            st.caption(("가짜 결과 · " if r["dummy"] else "") + f"{KO_MODES[r['mode']]} · {r['seconds']:.1f}초")
+    with slot.container() if slot else st.container():
+        st.space("large")
+        with st.container(key="ko_results"):  # 칸 높이는 CSS에서 화면 높이에 맞춤
+            st.subheader("변환 결과", anchor=False)
+            left, right = st.columns(2, gap="medium")
+            with left:
+                _label_with_copy("원문", 0)
+                st.text_area("원문", r["source"], height=460, disabled=True, key="out_source", label_visibility="collapsed")
+            with right:
+                _label_with_copy(f"{r['persona']} 문체", 1)
+                st.text_area(f"{r['persona']} 문체", r["converted"], height=460, disabled=True, label_visibility="collapsed")
+                st.caption(("가짜 결과 · " if r["dummy"] else "") + f"{KO_MODES[r['mode']]} · {r['seconds']:.1f}초")
+            st.html("<div class='ko-next'><button type='button' id='ko-next-btn' aria-label='점검 결과로 이동'></button></div>"
+                    "<script>document.getElementById('ko-next-btn').addEventListener('click', () => document.querySelector("
+                    "'.st-key-ko_details')?.scrollIntoView({behavior: 'smooth', block: 'start'}));</script>",
+                    unsafe_allow_javascript=True)
 
     with st.container(key="ko_details"):  # 뜻 확인 + 펼침 칸들을 한 묶음으로(테두리 없는 상자)
         v = r.get("verify")
@@ -268,15 +395,10 @@ def render_ko_style(persona, use_dummy, mode):
                     st.markdown(f"**{i}.** {e.get('topic') or e.get('type') or ''} · 유사도 {e['score']:.2f}")
                     st.write(e["text"])
 
-    st.space("large")
     try:  # 지표 계산이 실패해도 위 화면이 사라지지 않게
         render_ko_metrics(r, user, persona)
     except BaseException as e:
         st.warning(f"지표 표시 오류 ({type(e).__name__}: {e})")
-
-    if st.session_state.pop("ko_scroll", False):  # 시각을 넣어 변환할 때마다 새 요소로 그려지게(같은 내용이면 스크립트가 다시 안 돎)
-        st.html(f"<script>/* {time.time()} */ setTimeout(() => document.querySelector('.st-key-ko_results')"
-                "?.scrollIntoView({behavior: 'smooth', block: 'start'}), 250);</script>", unsafe_allow_javascript=True)
 
 
 # ==================================================
